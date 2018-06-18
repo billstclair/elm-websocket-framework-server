@@ -1,0 +1,30 @@
+{
+  "name": "web-socket-server-example",
+  "version": "1.0.0",
+  "description": "Websocket server for WebSocketFramework example.",
+  "author": "billstclair",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/billstclair/elm-websocket-framework.git"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start:server": "node ./www",
+    "build:server:server": "elm-make ../Server.elm --output ./www/server.js",
+    "build:server:client": "elm-make Client.elm --output ./www/client.js",
+    "build:server": "npm run build:server:client && npm run build:server:server"
+  },
+  "files": [
+    "index.js",
+    "lib/WebSocketServer.js"
+  ],
+  "dependencies": {
+    "uuid": "^3.0.1",
+    "ws": "^2.2.2"
+  },
+  "devDependencies": {
+    "ecstatic": "^2.1.0",
+    "elm": "^0.18.0"
+  },
+  "license": "MIT"
+}
