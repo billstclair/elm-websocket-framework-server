@@ -1,6 +1,6 @@
 This directory contains the server side of an example of using the `WebSocketFramework` module.
 
-`ExampleInterface.elm` is a copy of the same file in the example directory of the [billstclair/elm-websocket-framework]
+`ExampleInterface.elm` is a copy of the same file in the example directory of the [billstclair/elm-websocket-framework](http://package.elm-lang.org/packages/billstclair/elm-websocket-framework-server/latest) package.
 
 `Server.elm` is the top-level program for the server. It's a very simple protocol, so there's not much to it.
 
