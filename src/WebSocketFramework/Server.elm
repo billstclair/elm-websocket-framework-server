@@ -3,6 +3,7 @@ module WebSocketFramework.Server
         ( Model
         , Msg(..)
         , ServerMessageSender
+        , Socket
         , UserFunctions
         , WrappedModel(WrappedModel)
         , init
@@ -18,7 +19,7 @@ module WebSocketFramework.Server
 
 # Types
 
-@docs Model, Msg, ServerMessageSender, UserFunctions, WrappedModel
+@docs Model, Msg, ServerMessageSender, UserFunctions, WrappedModel, Socket
 
 
 # Top-level program
@@ -69,7 +70,7 @@ import WebSocketFramework.Types
         , ServerUrl
         , emptyServerState
         )
-import WebSocketServer as WSS exposing (Socket)
+import WebSocketServer as WSS
 
 
 {-| Create the top-level application program.
@@ -115,6 +116,12 @@ type alias ServerMessageSender servermodel message gamestate player =
 -}
 type WrappedModel servermodel message gamestate player
     = WrappedModel (Model servermodel message gamestate player)
+
+
+{-| An alias of WebSocketServer.Socket.
+-}
+type alias Socket =
+    WSS.Socket
 
 
 {-| User functions that get called by the generic server code.
