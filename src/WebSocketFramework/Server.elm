@@ -103,9 +103,11 @@ type alias DeathWatchGameids =
 
 {-| User function that is called to send the response(s) to a request.
 
-This will usually call `sentToOne` and/or `sendToMany` with the `message` emitted by the `ServiceMessageProcessor` in the `UserFunctions` passed to `program`.
+This will usually call `sendToOne` and/or `sendToMany` with the `message` emitted by the `ServiceMessageProcessor` in the `UserFunctions` passed to `program`.
 
 The first `message` is the request that came from client to server. The second `message` is the response. If no response is returned by the `ServiceMessageProcessor`, this function is not called.
+
+The `ServerState` arg is the value of the `state` property of the `WrappedModel` arg, pulled out for your convenience. If you change it, you must put it back in the model you return.
 
 -}
 type alias ServerMessageSender servermodel message gamestate player =
@@ -437,37 +439,38 @@ socketMessage model socket request =
             let
                 ( state, rsp ) =
                     userFunctions.messageProcessor model.state message
+
+                mod =
+                    { model | state = state }
             in
             case rsp of
                 Nothing ->
-                    ( { model | state = state }
-                    , Cmd.none
-                    )
+                    mod ! []
 
                 Just response ->
                     let
-                        mod =
+                        mod2 =
                             case userFunctions.messageToGameid of
                                 Nothing ->
-                                    model
+                                    mod
 
                                 Just messageGameid ->
                                     case messageGameid response of
                                         Nothing ->
-                                            model
+                                            mod
 
                                         Just gameid ->
-                                            reprieve gameid model
+                                            reprieve gameid mod
 
-                        ( WrappedModel mod2, cmd ) =
+                        ( WrappedModel mod3, cmd ) =
                             userFunctions.messageSender
-                                (WrappedModel mod)
+                                (WrappedModel mod2)
                                 socket
                                 state
                                 message
                                 response
                     in
-                    ( mod2, cmd )
+                    ( mod3, cmd )
 
 
 lowercaseLetter : Generator Char
