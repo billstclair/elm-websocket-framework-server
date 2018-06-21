@@ -12,6 +12,7 @@ module WebSocketFramework.Server
         , program
         , sendToMany
         , sendToOne
+        , verbose
         )
 
 {-| Support for a Node.js server for WebSocketFramework messages.
@@ -35,6 +36,11 @@ module WebSocketFramework.Server
 # Support for creating random game and player identifiers.
 
 @docs newGameid, newPlayerid
+
+
+# Model accessors
+
+@docs verbose
 
 -}
 
@@ -80,9 +86,9 @@ You will usually use the result of this function as the value of `main` in your 
 Most servers will not need to use the `servermodel`, but it's a place to stash extra server-wide state that doesn't make sense in the game-specific `gamestate`.
 
 -}
-program : servermodel -> UserFunctions servermodel message gamestate player -> Maybe gamestate -> Program Never (Model servermodel message gamestate player) Msg
+program : servermodel -> UserFunctions servermodel message gamestate player -> Maybe gamestate -> Program (Maybe String) (Model servermodel message gamestate player) Msg
 program servermodel userFunctions gamestate =
-    Platform.program
+    Platform.programWithFlags
         { init = init servermodel userFunctions gamestate
         , update = update
         , subscriptions = subscriptions userFunctions.inputPort
@@ -158,6 +164,7 @@ type alias Model servermodel message gamestate player =
     { servermodel : servermodel
     , userFunctions : UserFunctions servermodel message gamestate player
     , state : ServerState gamestate player
+    , verbose : Bool
     , gameidDict : Dict Socket GameId
     , playeridDict : Dict GameId (List PlayerId)
     , socketsDict : Dict GameId (List Socket)
@@ -168,16 +175,24 @@ type alias Model servermodel message gamestate player =
     }
 
 
+{-| Return whether VERBOSE is set in the server's environment
+-}
+verbose : WrappedModel servermodel message gamestate player -> Bool
+verbose (WrappedModel model) =
+    model.verbose
+
+
 {-| Return the initial `Model` and a `Cmd` to get the current time.
 
 Usually called for you by `program`.
 
 -}
-init : servermodel -> UserFunctions servermodel message gamestate player -> Maybe gamestate -> ( Model servermodel message gamestate player, Cmd Msg )
-init servermodel userFunctions gamestate =
+init : servermodel -> UserFunctions servermodel message gamestate player -> Maybe gamestate -> Maybe String -> ( Model servermodel message gamestate player, Cmd Msg )
+init servermodel userFunctions gamestate verbose =
     ( { servermodel = servermodel
       , userFunctions = userFunctions
       , state = emptyServerState gamestate
+      , verbose = verbose /= Nothing
       , gameidDict = Dict.empty
       , playeridDict = Dict.empty
       , socketsDict = Dict.empty
@@ -208,19 +223,27 @@ type Msg
     | Noop
 
 
-maybeLog : Msg -> Msg
-maybeLog msg =
+maybeLog : Bool -> String -> x -> x
+maybeLog verbose label x =
+    if verbose then
+        log label x
+    else
+        x
+
+
+maybeLogMsg : Bool -> Msg -> Msg
+maybeLogMsg verbose msg =
     case msg of
         Tick _ ->
             msg
 
         x ->
-            log "Msg" x
+            maybeLog verbose "Msg" x
 
 
 update : Msg -> Model servermodel message gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
 update message model =
-    case maybeLog message of
+    case maybeLogMsg model.verbose message of
         Connection socket ->
             ( model, Cmd.none )
 
@@ -263,7 +286,10 @@ killGame model gameid =
             model.state
 
         playerDict =
-            case Dict.get (log "killgame" gameid) model.playeridDict of
+            case
+                Dict.get (maybeLog model.verbose "killgame" gameid)
+                    model.playeridDict
+            of
                 Nothing ->
                     state.playerDict
 
@@ -322,7 +348,7 @@ deathWatch gameid model =
         gameids =
             model.deathWatchGameids
     in
-    case Dict.get (log "deathWatch" gameid) gameids of
+    case Dict.get (maybeLog model.verbose "deathWatch" gameid) gameids of
         Just _ ->
             model
 
@@ -348,7 +374,8 @@ reprieve gameid model =
 
         Just _ ->
             { model
-                | deathWatchGameids = Dict.remove (log "reprieve" gameid) gameids
+                | deathWatchGameids =
+                    Dict.remove (maybeLog model.verbose "reprieve" gameid) gameids
                 , deathWatch =
                     List.filter (\( _, gid ) -> gid /= gameid) model.deathWatch
             }
@@ -393,20 +420,20 @@ disconnection model socket =
 
 {-| Send a message to a single socket.
 -}
-sendToOne : MessageEncoder message -> message -> OutputPort Msg -> Socket -> Cmd Msg
-sendToOne encoder message outputPort socket =
+sendToOne : Bool -> MessageEncoder message -> message -> OutputPort Msg -> Socket -> Cmd Msg
+sendToOne verbose encoder message outputPort socket =
     WSS.sendToOne outputPort
-        (log "send" <| encodeMessage encoder message)
-        (log "  " socket)
+        (maybeLog verbose "sendToOne" <| encodeMessage encoder message)
+        (maybeLog verbose "  " socket)
 
 
 {-| Send a message to a multiple sockets.
 -}
-sendToMany : MessageEncoder message -> message -> OutputPort Msg -> List Socket -> Cmd Msg
-sendToMany encoder message outputPort sockets =
+sendToMany : Bool -> MessageEncoder message -> message -> OutputPort Msg -> List Socket -> Cmd Msg
+sendToMany verbose encoder message outputPort sockets =
     WSS.sendToMany outputPort
-        (log "send" (encodeMessage encoder message))
-        (log "  " sockets)
+        (maybeLog verbose "sendToMany" <| encodeMessage encoder message)
+        (maybeLog verbose "  " sockets)
         |> Cmd.batch
 
 
@@ -429,6 +456,7 @@ socketMessage model socket request =
                     in
                     ( model
                     , sendToOne
+                        model.verbose
                         userFunctions.encodeDecode.encoder
                         response
                         userFunctions.outputPort

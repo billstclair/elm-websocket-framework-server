@@ -17,6 +17,7 @@ import WebSocketFramework.Server
         , WrappedModel
         , program
         , sendToOne
+        , verbose
         )
 import WebSocketFramework.Types
     exposing
@@ -46,7 +47,7 @@ encodeDecode =
 
 messageSender : ServerMessageSender ServerModel Message GameState Player
 messageSender model socket state request response =
-    ( model, sendToOne messageEncoder response outputPort socket )
+    ( model, sendToOne (verbose model) messageEncoder response outputPort socket )
 
 
 userFunctions : UserFunctions ServerModel Message GameState Player
