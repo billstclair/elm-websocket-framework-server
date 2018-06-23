@@ -144,6 +144,8 @@ type alias Socket =
 
 `messageToGameid` extracts a GameId from a message, if there is one.
 
+`autoDeleteGame` is called when all sockets referencing a `GameId` have disconnected. If it returns True, then the game will be put on deathwatch, meaning it will be removed from the tables after 2 minutes. Usually used to keep public games from being auto-deleted.
+
 `inputPort` and `outputPort` are the ports used to communicate with the Node.js code.
 
 -}
@@ -152,6 +154,7 @@ type alias UserFunctions servermodel message gamestate player =
     , messageProcessor : ServerMessageProcessor gamestate player message
     , messageSender : ServerMessageSender servermodel message gamestate player
     , messageToGameid : Maybe (MessageToGameid message)
+    , autoDeleteGame : Maybe (GameId -> ServerState gamestate player -> Bool)
     , inputPort : InputPort Msg
     , outputPort : OutputPort Msg
     }
@@ -167,7 +170,7 @@ type alias Model servermodel message gamestate player =
     , userFunctions : UserFunctions servermodel message gamestate player
     , state : ServerState gamestate player
     , verbose : Bool
-    , gameidDict : Dict Socket GameId
+    , gameidDict : Dict Socket (List GameId)
     , playeridDict : Dict GameId (List PlayerId)
     , socketsDict : Dict GameId (List Socket)
     , deathWatch : List DeathWatch
@@ -347,21 +350,32 @@ doExecutions model =
 deathWatch : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
 deathWatch gameid model =
     let
+        doit =
+            case model.userFunctions.autoDeleteGame of
+                Nothing ->
+                    True
+
+                Just autoDeleteGame ->
+                    autoDeleteGame gameid model.state
+
         gameids =
             model.deathWatchGameids
     in
-    case Dict.get (maybeLog model.verbose "deathWatch" gameid) gameids of
-        Just _ ->
-            model
+    if not doit then
+        model
+    else
+        case Dict.get (maybeLog model.verbose "deathWatch" gameid) gameids of
+            Just _ ->
+                model
 
-        Nothing ->
-            { model
-                | deathWatchGameids = Dict.insert gameid True gameids
-                , deathWatch =
-                    List.append
-                        model.deathWatch
-                        [ ( model.time + deathRowDuration, gameid ) ]
-            }
+            Nothing ->
+                { model
+                    | deathWatchGameids = Dict.insert gameid True gameids
+                    , deathWatch =
+                        List.append
+                            model.deathWatch
+                            [ ( model.time + deathRowDuration, gameid ) ]
+                }
 
 
 reprieve : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
@@ -389,35 +403,41 @@ disconnection model socket =
         Nothing ->
             ( model, Cmd.none )
 
-        Just gameid ->
+        Just gameids ->
             let
-                model2 =
+                dogame =
+                    \gameid model2 ->
+                        let
+                            socketsDict =
+                                model.socketsDict
+                        in
+                        case Dict.get gameid model2.socketsDict of
+                            Nothing ->
+                                model2
+
+                            Just sockets ->
+                                let
+                                    socks =
+                                        List.filter (\s -> s /= socket) sockets
+
+                                    model3 =
+                                        { model2
+                                            | socketsDict =
+                                                Dict.insert
+                                                    gameid
+                                                    socks
+                                                    socketsDict
+                                        }
+                                in
+                                if socks == [] then
+                                    deathWatch gameid model3
+                                else
+                                    model3
+
+                mdl =
                     { model | gameidDict = Dict.remove socket model.gameidDict }
-
-                socketsDict =
-                    model.socketsDict
             in
-            case Dict.get gameid model.socketsDict of
-                Nothing ->
-                    ( model2, Cmd.none )
-
-                Just sockets ->
-                    let
-                        socks =
-                            List.filter (\s -> s /= socket) sockets
-
-                        model3 =
-                            { model2
-                                | socketsDict =
-                                    Dict.insert gameid socks socketsDict
-                            }
-                    in
-                    ( if socks == [] then
-                        deathWatch gameid model3
-                      else
-                        model3
-                    , Cmd.none
-                    )
+            List.foldl dogame mdl gameids ! []
 
 
 {-| Encode a message to a single socket via an output port.
