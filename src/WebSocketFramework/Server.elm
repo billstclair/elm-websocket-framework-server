@@ -63,6 +63,8 @@ import WebSocketFramework.ServerInterface
 import WebSocketFramework.Types
     exposing
         ( EncodeDecode
+        , Error
+        , ErrorKind(..)
         , GameId
         , InputPort
         , MessageDecoder
@@ -418,7 +420,10 @@ disconnection model socket =
                     )
 
 
-{-| Send a message to a single socket.
+{-| Encode a message to a single socket via an output port.
+
+If the first arg is True, log the operation on the console.
+
 -}
 sendToOne : Bool -> MessageEncoder message -> message -> OutputPort Msg -> Socket -> Cmd Msg
 sendToOne verbose encoder message outputPort socket =
@@ -427,7 +432,10 @@ sendToOne verbose encoder message outputPort socket =
         (maybeLog verbose "  " socket)
 
 
-{-| Send a message to a multiple sockets.
+{-| Encode a message to multiple sockets via an output port.
+
+If the first arg is True, log the operation on the console.
+
 -}
 sendToMany : Bool -> MessageEncoder message -> message -> OutputPort Msg -> List Socket -> Cmd Msg
 sendToMany verbose encoder message outputPort sockets =
@@ -444,7 +452,7 @@ socketMessage model socket request =
             model.userFunctions
     in
     case decodeMessage userFunctions.encodeDecode.decoder request of
-        Err msg ->
+        (Err msg) as result ->
             case userFunctions.encodeDecode.errorWrapper of
                 Nothing ->
                     ( model, Cmd.none )
@@ -452,7 +460,11 @@ socketMessage model socket request =
                 Just wrapper ->
                     let
                         response =
-                            wrapper <| "Can't parse request: " ++ request
+                            wrapper
+                                { kind = JsonParseError
+                                , description = request
+                                , message = result
+                                }
                     in
                     ( model
                     , sendToOne

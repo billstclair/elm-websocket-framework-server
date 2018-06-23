@@ -3,7 +3,7 @@ port module Server exposing (..)
 import ExampleInterface
     exposing
         ( GameState
-        , Message
+        , Message(..)
         , Player
         , messageDecoder
         , messageEncoder
@@ -22,6 +22,8 @@ import WebSocketFramework.Server
 import WebSocketFramework.Types
     exposing
         ( EncodeDecode
+        , Error
+        , ErrorKind(..)
         , InputPort
         , OutputPort
         , ServerState
@@ -37,11 +39,37 @@ serverModel =
     ()
 
 
+errorWrapper : Error Message -> Message
+errorWrapper { kind, description, message } =
+    case kind of
+        JsonParseError ->
+            let
+                err =
+                    case message of
+                        Err msg ->
+                            msg
+
+                        Ok msg ->
+                            -- Can't happen
+                            toString msg
+            in
+            ErrorMessage
+                { request = description
+                , error = "JSON parser error: " ++ err
+                }
+
+        _ ->
+            ErrorMessage
+                { request = ""
+                , error = toString message
+                }
+
+
 encodeDecode : EncodeDecode Message
 encodeDecode =
     { encoder = messageEncoder
     , decoder = messageDecoder
-    , errorWrapper = Nothing
+    , errorWrapper = Just errorWrapper
     }
 
 

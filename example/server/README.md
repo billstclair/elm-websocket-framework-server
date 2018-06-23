@@ -24,9 +24,9 @@ To start the server:
 
 * `npm run start:server`
 
-Normally, the server prints descriptions of every message it receives and sends. If you don't want to see this, you can invoke it with:
+Normally, the server is silent except for notifying you of the port it's listening on. If you want to see verbose messages, invoke it with:
 
-* `npm run start:server >/dev/null`
+* `VERBOSE=yes npm run start:server`
 
 If your web server automatically upgrades to HTTPS, or you prefer to leave off the ":8081" from the Server URL, you'll need to proxy to get to the non-encrypted websocket server. Do this by installing Apache `mod_proxy_wstunnel`:
 

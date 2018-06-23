@@ -39,6 +39,7 @@ type Message
     = AddMessage Int Int
     | MultiplyMessage Int Int
     | ResultMessage String
+    | ErrorMessage { request : String, error : String }
 
 
 messageProcessor : ServerState GameState Player -> Message -> ( ServerState GameState Player, Maybe Message )
@@ -102,6 +103,13 @@ messageEncoder message =
               ]
             )
 
+        ErrorMessage { request, error } ->
+            ( Rsp "error"
+            , [ ( "request", JE.string request )
+              , ( "error", JE.string error )
+              ]
+            )
+
 
 messageDecoder : ( ReqRsp, Plist ) -> Result String Message
 messageDecoder ( reqrsp, plist ) =
@@ -121,6 +129,9 @@ messageDecoder ( reqrsp, plist ) =
             case msg of
                 "result" ->
                     decodePlist resultDecoder plist
+
+                "error" ->
+                    decodePlist errorDecoder plist
 
                 _ ->
                     unknownMessage reqrsp
@@ -147,3 +158,16 @@ resultDecoder : Decoder Message
 resultDecoder =
     JD.map ResultMessage
         (JD.field "result" JD.string)
+
+
+errorDecoder : Decoder Message
+errorDecoder =
+    JD.map ErrorMessage <|
+        JD.map2
+            (\request error ->
+                { request = request
+                , error = error
+                }
+            )
+            (JD.field "request" JD.string)
+            (JD.field "error" JD.string)
