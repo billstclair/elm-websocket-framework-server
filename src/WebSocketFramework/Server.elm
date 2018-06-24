@@ -2,7 +2,9 @@ module WebSocketFramework.Server
     exposing
         ( Model
         , Msg(..)
+        , ServerGamesDeleter
         , ServerMessageSender
+        , ServerPlayersDeleter
         , Socket
         , UserFunctions
         , WrappedModel(WrappedModel)
@@ -20,7 +22,12 @@ module WebSocketFramework.Server
 
 # Types
 
-@docs Model, Msg, ServerMessageSender, UserFunctions, WrappedModel, Socket
+@docs Model, Msg, WrappedModel, Socket
+
+
+# Callbacks
+
+@docs UserFunctions, ServerMessageSender, ServerGamesDeleter, ServerPlayersDeleter
 
 
 # Top-level program
