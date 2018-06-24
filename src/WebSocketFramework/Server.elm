@@ -122,6 +122,24 @@ type alias ServerMessageSender servermodel message gamestate player =
     WrappedModel servermodel message gamestate player -> Socket -> ServerState gamestate player -> message -> message -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
 
 
+{-| Called when games are auto-deleted due to socket connections being lost.
+
+This will only happen if your server code tracks the association between sockets, games and players in the `gameidDict`, `playeridDict`, and `socketsDict` properties of the Model. When tracked games are dropped, this function, stored in the `gamesDeleter` property of `UserFunctions`, is called, so that you can clean up any reference to those games in your `gamestate`.
+
+-}
+type alias ServerGamesDeleter servermodel message gamestate player =
+    WrappedModel servermodel message gamestate player -> List GameId -> ServerState gamestate player -> WrappedModel servermodel message gamestate player
+
+
+{-| Called when players are auto-deleted due to socket connections being lost.
+
+This will only happen if your server code tracks the association between sockets, games and players in the `gameidDict`, `playeridDict`, and `socketsDict` properties of the Model. When tracked players are dropped, this function, stored in the `playersDelete` property of `UserFunctions`, is called, so that you can clean up any reference to those players in your `gamestate`.
+
+-}
+type alias ServerPlayersDeleter servermodel message gamestate player =
+    WrappedModel servermodel message gamestate player -> List PlayerId -> ServerState gamestate player -> WrappedModel servermodel message gamestate player
+
+
 {-| A type wrapper to prevent recursive types in `Model`.
 -}
 type WrappedModel servermodel message gamestate player
@@ -146,6 +164,10 @@ type alias Socket =
 
 `autoDeleteGame` is called when all sockets referencing a `GameId` have disconnected. If it returns True, then the game will be put on deathwatch, meaning it will be removed from the tables after 2 minutes. Usually used to keep public games from being auto-deleted.
 
+`gamesDeleter` is called when games are deleted due to their sockets being disconnected. See the `ServerGamesDeleter` description for more details.
+
+`playersDeleter` is called when players are deleted due to their sockets being disconnected. See the `ServerPlayersDeleter` description for more details.
+
 `inputPort` and `outputPort` are the ports used to communicate with the Node.js code.
 
 -}
@@ -155,6 +177,8 @@ type alias UserFunctions servermodel message gamestate player =
     , messageSender : ServerMessageSender servermodel message gamestate player
     , messageToGameid : Maybe (MessageToGameid message)
     , autoDeleteGame : Maybe (GameId -> ServerState gamestate player -> Bool)
+    , gamesDeleter : Maybe (ServerGamesDeleter servermodel message gamestate player)
+    , playersDeleter : Maybe (ServerPlayersDeleter servermodel message gamestate player)
     , inputPort : InputPort Msg
     , outputPort : OutputPort Msg
     }

@@ -85,6 +85,8 @@ userFunctions =
     , messageSender = messageSender
     , messageToGameid = Nothing
     , autoDeleteGame = Nothing
+    , gamesDeleter = Nothing
+    , playersDeleter = Nothing
     , inputPort = inputPort
     , outputPort = outputPort
     }
