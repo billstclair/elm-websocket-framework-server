@@ -18,6 +18,7 @@ module WebSocketFramework.Server
         , sendToMany
         , sendToOne
         , updateGameAndPlayerids
+        , updateGameid
         , updatePlayerid
         , verbose
         )
@@ -52,7 +53,8 @@ module WebSocketFramework.Server
 
 # Utilities
 
-@docs otherSockets, updateGameAndPlayerids, updatePlayerid, removeGame, removePlayer
+@docs otherSockets, updateGameAndPlayerids, updateGameid, updatePlayerid
+@docs removeGame, removePlayer
 
 
 # Model accessors
@@ -704,7 +706,53 @@ otherSockets gameid socket (WrappedModel model) =
             LE.remove socket sockets
 
 
-{-| Generate a new, random game and player ids for the passed GameId and PlayerId.
+{-| Generate a new, random player id for the passed GameId.
+
+Update the Model.state tables, changing old to new.
+
+Insert new in the Model.xxxDict tables.
+
+Your `ServerMessageProcessor` will often generate fixed ids or incrementing integers. This makes them unique and secure.
+
+-}
+updateGameid : WrappedModel servermodel message gamestate player -> Socket -> GameId -> ( WrappedModel servermodel message gamestate player, GameId )
+updateGameid (WrappedModel model) socket gameid =
+    let
+        ( gid, WrappedModel mdl2 ) =
+            newGameid (WrappedModel model)
+
+        state =
+            mdl2.state
+
+        gameDict =
+            case Dict.get gameid state.gameDict of
+                Nothing ->
+                    state.gameDict
+
+                Just gamestate ->
+                    Dict.insert gid gamestate <|
+                        Dict.remove gameid state.gameDict
+
+        mdl3 =
+            { mdl2
+                | socketGamesDict =
+                    let
+                        gids =
+                            adjoinToSocketGamesDict gid socket mdl2.socketGamesDict
+                    in
+                    Dict.insert socket gids mdl2.gameSocketsDict
+                , gameSocketsDict =
+                    Dict.insert gid [ socket ] mdl2.gameSocketsDict
+                , state =
+                    { state
+                        | gameDict = gameDict
+                    }
+            }
+    in
+    ( WrappedModel mdl3, gid )
+
+
+{-| Generate new, random game and player ids for the passed GameId and PlayerId.
 
 Update the Model.state tables, changing old to new.
 
