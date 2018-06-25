@@ -84,6 +84,7 @@ userFunctions =
     , messageProcessor = messageProcessor
     , messageSender = messageSender
     , messageToGameid = Nothing
+    , messageToPlayerid = Nothing
     , autoDeleteGame = Nothing
     , gamesDeleter = Nothing
     , playersDeleter = Nothing

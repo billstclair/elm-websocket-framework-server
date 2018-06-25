@@ -11,9 +11,14 @@ module WebSocketFramework.Server
         , init
         , newGameid
         , newPlayerid
+        , otherSockets
         , program
+        , removeGame
+        , removePlayer
         , sendToMany
         , sendToOne
+        , updateGameAndPlayerids
+        , updatePlayerid
         , verbose
         )
 
@@ -43,6 +48,11 @@ module WebSocketFramework.Server
 # Support for creating random game and player identifiers.
 
 @docs newGameid, newPlayerid
+
+
+# Utilities
+
+@docs otherSockets, updateGameAndPlayerids, updatePlayerid, removeGame, removePlayer
 
 
 # Model accessors
@@ -108,14 +118,6 @@ program servermodel userFunctions gamestate =
 -- MODEL
 
 
-type alias DeathWatch =
-    ( Time, GameId )
-
-
-type alias DeathWatchGameids =
-    Dict GameId Bool
-
-
 {-| User function that is called to send the response(s) to a request.
 
 This will usually call `sendToOne` and/or `sendToMany` with the `message` emitted by the `ServiceMessageProcessor` in the `UserFunctions` passed to `program`.
@@ -131,7 +133,7 @@ type alias ServerMessageSender servermodel message gamestate player =
 
 {-| Called when games are auto-deleted due to socket connections being lost.
 
-This will only happen if your server code tracks the association between sockets, games and players in the `gameidDict`, `playeridDict`, and `socketsDict` properties of the Model. When tracked games are dropped, this function, stored in the `gamesDeleter` property of `UserFunctions`, is called, so that you can clean up any reference to those games in your `gamestate`.
+This will only happen if your server code tracks the association between sockets, games and players in the `xxxDict` properties of the Model. When tracked games are dropped, this function, stored in the `gamesDeleter` property of `UserFunctions`, is called, so that you can clean up any reference to those games in your `gamestate`.
 
 -}
 type alias ServerGamesDeleter servermodel message gamestate player =
@@ -140,7 +142,7 @@ type alias ServerGamesDeleter servermodel message gamestate player =
 
 {-| Called when players are auto-deleted due to socket connections being lost.
 
-This will only happen if your server code tracks the association between sockets, games and players in the `gameidDict`, `playeridDict`, and `socketsDict` properties of the Model. When tracked players are dropped, this function, stored in the `playersDelete` property of `UserFunctions`, is called, so that you can clean up any reference to those players in your `gamestate`.
+This will only happen if your server code tracks the association between sockets, games and players in the `xxxDict` properties of the Model. When tracked players are dropped, this function, stored in the `playersDelete` property of `UserFunctions`, is called, so that you can clean up any reference to those players in your `gamestate`.
 
 -}
 type alias ServerPlayersDeleter servermodel message gamestate player =
@@ -169,6 +171,8 @@ type alias Socket =
 
 `messageToGameid` extracts a GameId from a message, if there is one.
 
+`messageToPlayerid` extracts a PlayerId from a message, if there is one.
+
 `autoDeleteGame` is called when all sockets referencing a `GameId` have disconnected. If it returns True, then the game will be put on deathwatch, meaning it will be removed from the tables after 2 minutes. Usually used to keep public games from being auto-deleted.
 
 `gamesDeleter` is called when games are deleted due to their sockets being disconnected. See the `ServerGamesDeleter` description for more details.
@@ -182,7 +186,8 @@ type alias UserFunctions servermodel message gamestate player =
     { encodeDecode : EncodeDecode message
     , messageProcessor : ServerMessageProcessor gamestate player message
     , messageSender : ServerMessageSender servermodel message gamestate player
-    , messageToGameid : Maybe (MessageToGameid message)
+    , messageToGameid : Maybe (message -> Maybe GameId)
+    , messageToPlayerid : Maybe (message -> Maybe PlayerId)
     , autoDeleteGame : Maybe (GameId -> ServerState gamestate player -> Bool)
     , gamesDeleter : Maybe (ServerGamesDeleter servermodel message gamestate player)
     , playersDeleter : Maybe (ServerPlayersDeleter servermodel message gamestate player)
@@ -195,17 +200,29 @@ type alias UserFunctions servermodel message gamestate player =
 
 `program` creates one of these, via a call to `init`.
 
+The four `Dict`s, mapping games, players, and sockets to each other, are used to give some time for a lost connection to come back. You must call the functions that maintain them, if you want those features.
+
+`deathRowDuration` is the time that a socket must remain disconnected before its games and players will be auto-removed. It defaults to two minutes.
+
+`verbose` is true to enable console logging of messages received and sent and auto-deletions. It is usually inititalized by the VERBOSE environment variable at server start time.
+
+The `deathWatch` variables are used for the auto-removal process. You shouldn't need to deal with them, other than providing `messageToGameid` and `messageToPlayerid` values for `userFunctions`.
+
 -}
 type alias Model servermodel message gamestate player =
     { servermodel : servermodel
     , userFunctions : UserFunctions servermodel message gamestate player
     , state : ServerState gamestate player
     , verbose : Bool
-    , gameidDict : Dict Socket (List GameId)
-    , playeridDict : Dict GameId (List PlayerId)
-    , socketsDict : Dict GameId (List Socket)
-    , deathWatch : List DeathWatch
-    , deathWatchGameids : DeathWatchGameids
+    , gamePlayersDict : Dict GameId (List PlayerId)
+    , gameSocketsDict : Dict GameId (List Socket)
+    , socketGamesDict : Dict Socket (List GameId)
+    , socketPlayersDict : Dict Socket (List ( GameId, PlayerId ))
+    , deathRowDuration : Time
+    , deathWatch : List ( Time, GameId )
+    , deathWatchGameids : Dict GameId Bool
+    , deathWatchPlayers : List ( Time, GameId, PlayerId )
+    , deathWatchPlayerids : Dict PlayerId Bool
     , time : Time
     , seed : Seed
     }
@@ -229,11 +246,15 @@ init servermodel userFunctions gamestate verbose =
       , userFunctions = userFunctions
       , state = emptyServerState gamestate
       , verbose = verbose /= Nothing
-      , gameidDict = Dict.empty
-      , playeridDict = Dict.empty
-      , socketsDict = Dict.empty
+      , gamePlayersDict = Dict.empty
+      , gameSocketsDict = Dict.empty
+      , socketGamesDict = Dict.empty
+      , socketPlayersDict = Dict.empty
+      , deathRowDuration = deathRowDuration
       , deathWatch = []
       , deathWatchGameids = Dict.empty
+      , deathWatchPlayers = []
+      , deathWatchPlayerids = Dict.empty
       , time = 0
       , seed = Random.initialSeed 0
       }
@@ -324,7 +345,7 @@ killGame model gameid =
         playerDict =
             case
                 Dict.get (maybeLog model.verbose "killgame" gameid)
-                    model.playeridDict
+                    model.gamePlayersDict
             of
                 Nothing ->
                     state.playerDict
@@ -339,7 +360,7 @@ killGame model gameid =
                 , playerDict = playerDict
                 , publicGames = removeField gameid .gameid state.publicGames
             }
-        , playeridDict = Dict.remove gameid model.playeridDict
+        , gamePlayersDict = Dict.remove gameid model.gamePlayersDict
     }
 
 
@@ -405,7 +426,7 @@ deathWatch gameid model =
                     , deathWatch =
                         List.append
                             model.deathWatch
-                            [ ( model.time + deathRowDuration, gameid ) ]
+                            [ ( model.time + model.deathRowDuration, gameid ) ]
                 }
 
 
@@ -428,9 +449,29 @@ reprieve gameid model =
             }
 
 
+reprievePlayer : PlayerId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+reprievePlayer playerid model =
+    let
+        playerids =
+            model.deathWatchPlayerids
+    in
+    case Dict.get playerid playerids of
+        Nothing ->
+            model
+
+        Just _ ->
+            { model
+                | deathWatchPlayerids =
+                    Dict.remove (maybeLog model.verbose "reprievePlayer" playerid) playerids
+                , deathWatchPlayers =
+                    List.filter (\( _, _, pid ) -> pid /= playerid)
+                        model.deathWatchPlayers
+            }
+
+
 disconnection : Model servermodel message gamestate player -> Socket -> ( Model servermodel message gamestate player, Cmd Msg )
 disconnection model socket =
-    case Dict.get socket model.gameidDict of
+    case Dict.get socket model.socketGamesDict of
         Nothing ->
             ( model, Cmd.none )
 
@@ -438,11 +479,7 @@ disconnection model socket =
             let
                 dogame =
                     \gameid model2 ->
-                        let
-                            socketsDict =
-                                model.socketsDict
-                        in
-                        case Dict.get gameid model2.socketsDict of
+                        case Dict.get gameid model2.gameSocketsDict of
                             Nothing ->
                                 model2
 
@@ -453,11 +490,11 @@ disconnection model socket =
 
                                     model3 =
                                         { model2
-                                            | socketsDict =
+                                            | gameSocketsDict =
                                                 Dict.insert
                                                     gameid
                                                     socks
-                                                    socketsDict
+                                                    model2.gameSocketsDict
                                         }
                                 in
                                 if socks == [] then
@@ -466,7 +503,10 @@ disconnection model socket =
                                     model3
 
                 mdl =
-                    { model | gameidDict = Dict.remove socket model.gameidDict }
+                    { model
+                        | socketGamesDict =
+                            Dict.remove socket model.socketGamesDict
+                    }
             in
             List.foldl dogame mdl gameids ! []
 
@@ -532,7 +572,7 @@ socketMessage model socket request =
                     userFunctions.messageProcessor model.state message
 
                 mod =
-                    { model | state = state }
+                    maybeReprieve message { model | state = state }
             in
             case rsp of
                 Nothing ->
@@ -541,17 +581,7 @@ socketMessage model socket request =
                 Just response ->
                     let
                         mod2 =
-                            case userFunctions.messageToGameid of
-                                Nothing ->
-                                    mod
-
-                                Just messageGameid ->
-                                    case messageGameid response of
-                                        Nothing ->
-                                            mod
-
-                                        Just gameid ->
-                                            reprieve gameid mod
+                            maybeReprieve response mod
 
                         ( WrappedModel mod3, cmd ) =
                             userFunctions.messageSender
@@ -562,6 +592,35 @@ socketMessage model socket request =
                                 response
                     in
                     ( mod3, cmd )
+
+
+maybeReprieve : message -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+maybeReprieve message model =
+    let
+        mod =
+            case model.userFunctions.messageToGameid of
+                Nothing ->
+                    model
+
+                Just messageToGameid ->
+                    case messageToGameid message of
+                        Nothing ->
+                            model
+
+                        Just gameid ->
+                            reprieve gameid model
+    in
+    case model.userFunctions.messageToPlayerid of
+        Nothing ->
+            mod
+
+        Just messageToPlayerid ->
+            case messageToPlayerid message of
+                Nothing ->
+                    mod
+
+                Just playerid ->
+                    reprievePlayer playerid mod
 
 
 lowercaseLetter : Generator Char
@@ -626,6 +685,238 @@ newPlayerid model =
 
                 Just _ ->
                     newPlayerid mod
+
+
+{-| Return sockets associated with a game.
+
+Removes the passed socket from the list.
+
+Often useful in `ServerMessageSender` functions to send responses to all players.
+
+-}
+otherSockets : GameId -> Socket -> WrappedModel servermodel message gamestate player -> List Socket
+otherSockets gameid socket (WrappedModel model) =
+    case Dict.get gameid model.gameSocketsDict of
+        Nothing ->
+            []
+
+        Just sockets ->
+            LE.remove socket sockets
+
+
+{-| Generate a new, random game and player ids for the passed GameId and PlayerId.
+
+Update the Model.state tables, changing old to new.
+
+Insert new in the Model.xxxDict tables.
+
+Your `ServerMessageProcessor` will often generate fixed ids or incrementing integers. This makes them unique and secure.
+
+-}
+updateGameAndPlayerids : WrappedModel servermodel message gamestate player -> Socket -> GameId -> PlayerId -> ( WrappedModel servermodel message gamestate player, GameId, PlayerId )
+updateGameAndPlayerids (WrappedModel model) socket gameid playerid =
+    let
+        ( gid, WrappedModel mdl2 ) =
+            newGameid (WrappedModel model)
+
+        ( pid, WrappedModel mdl3 ) =
+            newPlayerid (WrappedModel mdl2)
+
+        state =
+            mdl3.state
+
+        gameDict =
+            case Dict.get gameid state.gameDict of
+                Nothing ->
+                    state.gameDict
+
+                Just gamestate ->
+                    Dict.insert gid gamestate <|
+                        Dict.remove gameid state.gameDict
+
+        playerDict =
+            case Dict.get playerid state.playerDict of
+                Nothing ->
+                    state.playerDict
+
+                Just info ->
+                    Dict.insert pid { info | gameid = gid } <|
+                        Dict.remove playerid state.playerDict
+
+        mdl4 =
+            { mdl3
+                | socketGamesDict =
+                    let
+                        gids =
+                            adjoinToSocketGamesDict gid socket mdl3.socketGamesDict
+                    in
+                    Dict.insert socket gids mdl3.gameSocketsDict
+                , gameSocketsDict =
+                    Dict.insert gid [ socket ] mdl2.gameSocketsDict
+                , gamePlayersDict =
+                    Dict.insert gid [ pid ] mdl2.gamePlayersDict
+                , state =
+                    { state
+                        | gameDict = gameDict
+                        , playerDict = playerDict
+                    }
+            }
+    in
+    ( WrappedModel mdl4, gid, pid )
+
+
+adjoinToSocketGamesDict : GameId -> Socket -> Dict Socket (List GameId) -> List GameId
+adjoinToSocketGamesDict gameid socket dict =
+    case Dict.get socket dict of
+        Nothing ->
+            [ gameid ]
+
+        Just gids ->
+            gameid :: gids
+
+
+{-| Generate a new, random player id for the passed PlayerId on the passed GameId.
+
+Update the Model.state tables, changing old to new.
+
+Insert new in the Model.xxxDict tables.
+
+Your `ServerMessageProcessor` will often generate fixed ids or incrementing integers. This makes them unique and secure.
+
+-}
+updatePlayerid : WrappedModel servermodel message gamestate player -> Socket -> GameId -> PlayerId -> ( WrappedModel servermodel message gamestate player, GameId, PlayerId )
+updatePlayerid (WrappedModel model) socket gameid playerid =
+    let
+        ( pid, WrappedModel mdl2 ) =
+            newPlayerid (WrappedModel model)
+
+        sockets =
+            case Dict.get gameid mdl2.gameSocketsDict of
+                Nothing ->
+                    [ socket ]
+
+                Just socks ->
+                    if List.member socket socks then
+                        socks
+                    else
+                        socket :: socks
+
+        playerids =
+            case Dict.get gameid mdl2.gamePlayersDict of
+                Nothing ->
+                    [ pid ]
+
+                Just pids ->
+                    pid :: pids
+
+        state =
+            mdl2.state
+
+        playerDict =
+            case Dict.get playerid state.playerDict of
+                Nothing ->
+                    state.playerDict
+
+                Just info ->
+                    Dict.insert pid info <|
+                        Dict.remove playerid state.playerDict
+
+        mdl3 =
+            { mdl2
+                | socketGamesDict =
+                    let
+                        gids =
+                            adjoinToSocketGamesDict gameid socket mdl2.socketGamesDict
+                    in
+                    Dict.insert socket gids mdl2.socketGamesDict
+                , gameSocketsDict =
+                    Dict.insert gameid sockets mdl2.gameSocketsDict
+                , gamePlayersDict =
+                    Dict.insert gameid playerids mdl2.gamePlayersDict
+                , state =
+                    { state
+                        | playerDict = playerDict
+                    }
+            }
+    in
+    ( WrappedModel mdl3, gameid, pid )
+
+
+{-| Remove a game from the Model.xxxDict tables.
+
+Your code is responsible for removing it from the Model.state tables.
+
+-}
+removeGame : WrappedModel servermodel message gamestate player -> GameId -> WrappedModel servermodel message gamestate player
+removeGame (WrappedModel model) gameid =
+    let
+        mdl2 =
+            case Dict.get gameid model.gameSocketsDict of
+                Nothing ->
+                    model
+
+                Just sockets ->
+                    { model
+                        | socketGamesDict =
+                            List.foldl (removeFromSocketGamesDict gameid)
+                                model.socketGamesDict
+                                sockets
+                        , gameSocketsDict =
+                            Dict.remove gameid model.gameSocketsDict
+                    }
+    in
+    WrappedModel
+        { mdl2
+            | gamePlayersDict = Dict.remove gameid mdl2.gamePlayersDict
+        }
+
+
+removeFromSocketGamesDict : GameId -> Socket -> Dict Socket (List GameId) -> Dict Socket (List GameId)
+removeFromSocketGamesDict gameid socket dict =
+    case Dict.get socket dict of
+        Nothing ->
+            dict
+
+        Just gids ->
+            case LE.remove gameid gids of
+                [] ->
+                    Dict.remove socket dict
+
+                gids2 ->
+                    Dict.insert socket gids2 dict
+
+
+{-| Remove a player from the Model.xxxDict tables.
+
+Your code is responsible for removing it from the Model.state tables.
+
+-}
+removePlayer : WrappedModel servermodel message gamestate player -> GameId -> PlayerId -> Bool -> WrappedModel servermodel message gamestate player
+removePlayer (WrappedModel model) gameid playerid keepGame =
+    case Dict.get gameid model.gamePlayersDict of
+        Nothing ->
+            WrappedModel model
+
+        Just playerids ->
+            case LE.remove playerid playerids of
+                [] ->
+                    if keepGame then
+                        WrappedModel
+                            { model
+                                | gamePlayersDict =
+                                    Dict.remove gameid model.gamePlayersDict
+                            }
+                    else
+                        removeGame (WrappedModel model) gameid
+
+                playerids ->
+                    WrappedModel
+                        { model
+                            | gamePlayersDict =
+                                Dict.insert gameid
+                                    (LE.remove playerid playerids)
+                                    model.gamePlayersDict
+                        }
 
 
 
