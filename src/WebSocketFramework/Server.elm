@@ -366,6 +366,34 @@ killGame model gameid =
     }
 
 
+killPlayer : Model servermodel message gamestate player -> GameId -> PlayerId -> Model servermodel message gamestate player
+killPlayer model gameid playerid =
+    let
+        state =
+            model.state
+
+        gamePlayersDict =
+            case Dict.get gameid model.gamePlayersDict of
+                Nothing ->
+                    model.gamePlayersDict
+
+                Just playerids ->
+                    case LE.remove playerid playerids of
+                        [] ->
+                            Dict.remove playerid model.gamePlayersDict
+
+                        pids ->
+                            Dict.insert playerid pids model.gamePlayersDict
+    in
+    { model
+        | state =
+            { state
+                | playerDict = Dict.remove playerid state.playerDict
+            }
+        , gamePlayersDict = gamePlayersDict
+    }
+
+
 deathRowDuration : Time
 deathRowDuration =
     2 * Time.minute
@@ -377,7 +405,7 @@ doExecutions model =
         time =
             model.time
 
-        loop =
+        gameLoop =
             \mod watches ->
                 case watches of
                     [] ->
@@ -385,7 +413,7 @@ doExecutions model =
 
                     ( tim, gid ) :: tail ->
                         if time >= tim then
-                            loop
+                            gameLoop
                                 (killGame
                                     { mod
                                         | deathWatch = tail
@@ -397,12 +425,37 @@ doExecutions model =
                                 tail
                         else
                             mod
+
+        playerLoop =
+            \mod watches ->
+                case watches of
+                    [] ->
+                        mod
+
+                    ( tim, gid, pid ) :: tail ->
+                        if time >= tim then
+                            playerLoop
+                                (killPlayer
+                                    { mod
+                                        | deathWatchPlayers = tail
+                                        , deathWatchPlayerids =
+                                            Dict.remove pid mod.deathWatchPlayerids
+                                    }
+                                    gid
+                                    pid
+                                )
+                                tail
+                        else
+                            mod
+
+        mdl =
+            gameLoop model model.deathWatch
     in
-    loop model model.deathWatch
+    playerLoop model model.deathWatchPlayers
 
 
-deathWatch : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-deathWatch gameid model =
+deathWatchGame : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+deathWatchGame gameid model =
     let
         doit =
             case model.userFunctions.autoDeleteGame of
@@ -451,6 +504,26 @@ reprieve gameid model =
             }
 
 
+deathWatchPlayer : ( GameId, PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+deathWatchPlayer ( gameid, playerid ) model =
+    let
+        playerids =
+            model.deathWatchPlayerids
+    in
+    case Dict.get (maybeLog model.verbose "deathWatchPlayer" playerid) playerids of
+        Just _ ->
+            model
+
+        Nothing ->
+            { model
+                | deathWatchPlayerids = Dict.insert playerid True playerids
+                , deathWatchPlayers =
+                    List.append
+                        model.deathWatchPlayers
+                        [ ( model.time + model.deathRowDuration, gameid, playerid ) ]
+            }
+
+
 reprievePlayer : PlayerId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
 reprievePlayer playerid model =
     let
@@ -475,7 +548,7 @@ disconnection : Model servermodel message gamestate player -> Socket -> ( Model 
 disconnection model socket =
     case Dict.get socket model.socketGamesDict of
         Nothing ->
-            ( model, Cmd.none )
+            model ! []
 
         Just gameids ->
             let
@@ -500,17 +573,28 @@ disconnection model socket =
                                         }
                                 in
                                 if socks == [] then
-                                    deathWatch gameid model3
+                                    deathWatchGame gameid model3
                                 else
                                     model3
 
                 mdl =
-                    { model
-                        | socketGamesDict =
-                            Dict.remove socket model.socketGamesDict
-                    }
+                    List.foldl dogame model gameids
+
+                mdl2 =
+                    case Dict.get socket mdl.socketPlayersDict of
+                        Nothing ->
+                            mdl
+
+                        Just playerPairs ->
+                            List.foldl deathWatchPlayer mdl playerPairs
             in
-            List.foldl dogame mdl gameids ! []
+            { mdl2
+                | socketGamesDict =
+                    Dict.remove socket model.socketGamesDict
+                , socketPlayersDict =
+                    Dict.remove socket model.socketPlayersDict
+            }
+                ! []
 
 
 {-| Encode a message to a single socket via an output port.
@@ -800,9 +884,9 @@ updateGameAndPlayerids (WrappedModel model) socket gameid playerid =
                     in
                     Dict.insert socket gids mdl3.gameSocketsDict
                 , gameSocketsDict =
-                    Dict.insert gid [ socket ] mdl2.gameSocketsDict
+                    Dict.insert gid [ socket ] mdl3.gameSocketsDict
                 , gamePlayersDict =
-                    Dict.insert gid [ pid ] mdl2.gamePlayersDict
+                    Dict.insert gid [ pid ] mdl3.gamePlayersDict
                 , state =
                     { state
                         | gameDict = gameDict
