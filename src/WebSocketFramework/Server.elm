@@ -219,6 +219,7 @@ type alias Model servermodel message gamestate player =
     , gamePlayersDict : Dict GameId (List PlayerId)
     , gameSocketsDict : Dict GameId (List Socket)
     , socketGamesDict : Dict Socket (List GameId)
+    , playerSocketDict : Dict PlayerId Socket
     , socketPlayersDict : Dict Socket (List ( GameId, PlayerId ))
     , deathRowDuration : Time
     , deathWatch : List ( Time, GameId )
@@ -251,6 +252,7 @@ init servermodel userFunctions gamestate verbose =
       , gamePlayersDict = Dict.empty
       , gameSocketsDict = Dict.empty
       , socketGamesDict = Dict.empty
+      , playerSocketDict = Dict.empty
       , socketPlayersDict = Dict.empty
       , deathRowDuration = deathRowDuration
       , deathWatch = []
@@ -573,7 +575,18 @@ disconnection model socket =
                         model
 
                     Just playerPairs ->
-                        List.foldl deathWatchPlayer model playerPairs
+                        List.foldl
+                            (\pair model ->
+                                deathWatchPlayer
+                                    pair
+                                    { model
+                                        | playerSocketDict =
+                                            Dict.remove (Tuple.second pair)
+                                                model.playerSocketDict
+                                    }
+                            )
+                            model
+                            playerPairs
     in
     case Dict.get socket model.socketGamesDict of
         Nothing ->
@@ -590,7 +603,7 @@ disconnection model socket =
                             Just sockets ->
                                 let
                                     socks =
-                                        List.filter (\s -> s /= socket) sockets
+                                        List.filter ((/=) socket) sockets
 
                                     model2 =
                                         { model
@@ -908,6 +921,8 @@ updateGameAndPlayerids (WrappedModel model) socket gameid playerid =
                         pid
                         socket
                         mdl3.socketPlayersDict
+                , playerSocketDict =
+                    Dict.insert pid socket mdl3.playerSocketDict
                 , state =
                     { state
                         | gameDict = gameDict
@@ -999,6 +1014,8 @@ updatePlayerid (WrappedModel model) socket gameid playerid =
                         pid
                         socket
                         mdl2.socketPlayersDict
+                , playerSocketDict =
+                    Dict.insert pid socket mdl2.playerSocketDict
                 , gamePlayersDict =
                     Dict.insert gameid playerids mdl2.gamePlayersDict
                 , state =
@@ -1019,22 +1036,43 @@ removeGame : WrappedModel servermodel message gamestate player -> GameId -> Wrap
 removeGame (WrappedModel model) gameid =
     let
         mdl2 =
-            case Dict.get gameid model.gameSocketsDict of
-                Nothing ->
-                    model
+            let
+                sockets =
+                    case Dict.get gameid model.gameSocketsDict of
+                        Nothing ->
+                            []
 
-                Just sockets ->
-                    { model
-                        | socketGamesDict =
-                            List.foldl (removeFromSocketGamesDict gameid)
-                                model.socketGamesDict
-                                sockets
-                        , gameSocketsDict =
-                            Dict.remove gameid model.gameSocketsDict
+                        Just sockets ->
+                            sockets
+            in
+            { model
+                | socketGamesDict =
+                    List.foldl (removeFromSocketGamesDict gameid)
+                        model.socketGamesDict
+                        sockets
+                , gameSocketsDict =
+                    Dict.remove gameid model.gameSocketsDict
+                , socketPlayersDict =
+                    List.foldl Dict.remove
+                        model.socketPlayersDict
+                        sockets
+            }
+
+        mdl3 =
+            case Dict.get gameid mdl2.gamePlayersDict of
+                Nothing ->
+                    mdl2
+
+                Just players ->
+                    { mdl2
+                        | playerSocketDict =
+                            List.foldl Dict.remove
+                                model.playerSocketDict
+                                players
                     }
     in
     WrappedModel
-        { mdl2
+        { mdl3
             | gamePlayersDict = Dict.remove gameid mdl2.gamePlayersDict
         }
 
@@ -1066,25 +1104,55 @@ removePlayer (WrappedModel model) gameid playerid keepGame =
             WrappedModel model
 
         Just playerids ->
+            let
+                mdl =
+                    case Dict.get playerid model.playerSocketDict of
+                        Nothing ->
+                            model
+
+                        Just socket ->
+                            { model
+                                | socketPlayersDict =
+                                    Dict.remove socket
+                                        model.socketPlayersDict
+                            }
+            in
             case LE.remove playerid playerids of
                 [] ->
                     if keepGame then
                         WrappedModel
-                            { model
+                            { mdl
                                 | gamePlayersDict =
-                                    Dict.remove gameid model.gamePlayersDict
+                                    Dict.remove gameid mdl.gamePlayersDict
                             }
                     else
-                        removeGame (WrappedModel model) gameid
+                        removeGame (WrappedModel mdl) gameid
 
                 playerids ->
                     WrappedModel
-                        { model
+                        { mdl
                             | gamePlayersDict =
                                 Dict.insert gameid
                                     (LE.remove playerid playerids)
                                     model.gamePlayersDict
+                            , playerSocketDict =
+                                Dict.remove playerid model.playerSocketDict
                         }
+
+
+removeFromSocketPlayersDict : PlayerId -> Socket -> Dict Socket (List PlayerId) -> Dict Socket (List PlayerId)
+removeFromSocketPlayersDict playerid socket dict =
+    case Dict.get socket dict of
+        Nothing ->
+            dict
+
+        Just pids ->
+            case LE.remove playerid pids of
+                [] ->
+                    Dict.remove socket dict
+
+                pids2 ->
+                    Dict.insert socket pids2 dict
 
 
 
