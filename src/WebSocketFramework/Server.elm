@@ -9,17 +9,10 @@ module WebSocketFramework.Server
         , UserFunctions
         , WrappedModel(WrappedModel)
         , init
-        , newGameid
-        , newPlayerid
         , otherSockets
         , program
-        , removeGame
-        , removePlayer
         , sendToMany
         , sendToOne
-        , updateGameAndPlayerids
-        , updateGameid
-        , updatePlayerid
         , verbose
         )
 
@@ -46,15 +39,9 @@ module WebSocketFramework.Server
 @docs sendToOne, sendToMany
 
 
-# Support for creating random game and player identifiers.
-
-@docs newGameid, newPlayerid
-
-
 # Utilities
 
-@docs otherSockets, updateGameAndPlayerids, updateGameid, updatePlayerid
-@docs removeGame, removePlayer
+@docs otherSockets
 
 
 # Model accessors
@@ -694,8 +681,11 @@ socketMessage model socket request =
                 ( state, rsp ) =
                     userFunctions.messageProcessor model.state message
 
+                mdl =
+                    processAddsAndRemoves socket model state
+
                 mod =
-                    maybeReprieve message { model | state = state }
+                    maybeReprieve message mdl
             in
             case rsp of
                 Nothing ->
@@ -746,70 +736,6 @@ maybeReprieve message model =
                     reprievePlayer playerid mod
 
 
-lowercaseLetter : Generator Char
-lowercaseLetter =
-    Random.map (\n -> Char.fromCode (n + 97)) (Random.int 0 25)
-
-
-{-| (log (expt 26 16) 2) -> 75
--}
-gameidLength : Int
-gameidLength =
-    16
-
-
-gameidGenerator : Generator GameId
-gameidGenerator =
-    Random.map String.fromList <|
-        Random.list gameidLength lowercaseLetter
-
-
-{-| Generate a random GameId string, ensuring that it is not already assigned to a game.
-
-Will not be used by servers that have no concept of a game.
-
--}
-newGameid : WrappedModel servermodel message gamestate player -> ( GameId, WrappedModel servermodel message gamestate player )
-newGameid (WrappedModel model) =
-    let
-        ( res, seed ) =
-            Random.step gameidGenerator model.seed
-
-        mdl2 =
-            WrappedModel { model | seed = seed }
-    in
-    case Dict.get res model.state.gameDict of
-        Nothing ->
-            ( res, mdl2 )
-
-        Just _ ->
-            newGameid mdl2
-
-
-{-| Generate a random PlayerId string, ensuring that it is not already assigned to a player.
-
-Will not be used by servers that have no concept of a player.
-
--}
-newPlayerid : WrappedModel servermodel message gamestate player -> ( PlayerId, WrappedModel servermodel message gamestate player )
-newPlayerid model =
-    let
-        ( gameid, mod ) =
-            newGameid model
-
-        playerid =
-            "P" ++ gameid
-    in
-    case mod of
-        WrappedModel mdl ->
-            case Dict.get playerid mdl.state.playerDict of
-                Nothing ->
-                    ( playerid, mod )
-
-                Just _ ->
-                    newPlayerid mod
-
-
 {-| Return sockets associated with a game.
 
 Removes the passed socket from the list.
@@ -827,110 +753,83 @@ otherSockets gameid socket (WrappedModel model) =
             LE.remove socket sockets
 
 
-{-| Generate a new, random player id for the passed GameId.
+processAddsAndRemoves : Socket -> Model servermodel message gamestate player -> ServerState gamestate player -> Model servermodel message gamestate player
+processAddsAndRemoves socket model state =
+    case state.changes of
+        Nothing ->
+            model
 
-Update the Model.state tables, changing old to new.
+        Just changes ->
+            let
+                mdl =
+                    List.foldl (recordGameid socket)
+                        model
+                        changes.addedGames
 
-Insert new in the Model.xxxDict tables.
+                mdl2 =
+                    List.foldl (recordPlayerid socket)
+                        mdl
+                        changes.addedPlayers
 
-Your `ServerMessageProcessor` will often generate fixed ids or incrementing integers. This makes them unique and secure.
+                mdl3 =
+                    List.foldl removeGame
+                        mdl2
+                        changes.removedGames
 
--}
-updateGameid : WrappedModel servermodel message gamestate player -> Socket -> GameId -> ( WrappedModel servermodel message gamestate player, GameId )
-updateGameid (WrappedModel model) socket gameid =
-    let
-        ( gid, WrappedModel mdl2 ) =
-            newGameid (WrappedModel model)
-
-        state =
-            mdl2.state
-
-        gameDict =
-            case Dict.get gameid state.gameDict of
-                Nothing ->
-                    state.gameDict
-
-                Just gamestate ->
-                    Dict.insert gid gamestate <|
-                        Dict.remove gameid state.gameDict
-
-        mdl3 =
-            { mdl2
-                | socketGamesDict =
-                    adjoinToSocketGamesDict gid socket mdl2.socketGamesDict
-                , gameSocketsDict =
-                    Dict.insert gid [ socket ] mdl2.gameSocketsDict
-                , state =
-                    { state
-                        | gameDict = gameDict
-                    }
+                mdl4 =
+                    List.foldl removePlayer
+                        mdl3
+                        changes.removedPlayers
+            in
+            { mdl4
+                | state =
+                    { state | changes = Nothing }
             }
-    in
-    ( WrappedModel mdl3, gid )
 
 
-{-| Generate new, random game and player ids for the passed GameId and PlayerId.
+recordGameid : Socket -> GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+recordGameid socket gameid model =
+    { model
+        | socketGamesDict =
+            adjoinToSocketGamesDict gameid socket model.socketGamesDict
+        , gameSocketsDict =
+            Dict.insert gameid [ socket ] model.gameSocketsDict
+    }
 
-Update the Model.state tables, changing old to new.
 
-Insert new in the Model.xxxDict tables.
-
-Your `ServerMessageProcessor` will often generate fixed ids or incrementing integers. This makes them unique and secure.
-
--}
-updateGameAndPlayerids : WrappedModel servermodel message gamestate player -> Socket -> GameId -> PlayerId -> ( WrappedModel servermodel message gamestate player, GameId, PlayerId )
-updateGameAndPlayerids (WrappedModel model) socket gameid playerid =
+recordPlayerid : Socket -> ( GameId, PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+recordPlayerid socket ( gameid, playerid ) model =
     let
-        ( gid, WrappedModel mdl2 ) =
-            newGameid (WrappedModel model)
-
-        ( pid, WrappedModel mdl3 ) =
-            newPlayerid (WrappedModel mdl2)
-
-        state =
-            mdl3.state
-
-        gameDict =
-            case Dict.get gameid state.gameDict of
+        sockets =
+            case Dict.get gameid model.gameSocketsDict of
                 Nothing ->
-                    state.gameDict
+                    [ socket ]
 
-                Just gamestate ->
-                    Dict.insert gid gamestate <|
-                        Dict.remove gameid state.gameDict
+                Just socks ->
+                    if List.member socket socks then
+                        socks
+                    else
+                        socket :: socks
 
-        playerDict =
-            case Dict.get playerid state.playerDict of
+        playerids =
+            case Dict.get gameid model.gamePlayersDict of
                 Nothing ->
-                    state.playerDict
+                    [ playerid ]
 
-                Just info ->
-                    Dict.insert pid { info | gameid = gid } <|
-                        Dict.remove playerid state.playerDict
-
-        mdl4 =
-            { mdl3
-                | socketGamesDict =
-                    adjoinToSocketGamesDict gid socket mdl3.socketGamesDict
-                , gameSocketsDict =
-                    Dict.insert gid [ socket ] mdl3.gameSocketsDict
-                , gamePlayersDict =
-                    Dict.insert gid [ pid ] mdl3.gamePlayersDict
-                , socketPlayersDict =
-                    adjoinToSocketPlayersDict gid
-                        pid
-                        socket
-                        mdl3.socketPlayersDict
-                , playerSocketDict =
-                    Dict.insert pid socket mdl3.playerSocketDict
-                , state =
-                    { state
-                        | gameDict = gameDict
-                        , playerDict = playerDict
-                    }
-            }
+                Just pids ->
+                    playerid :: pids
     in
-    ( WrappedModel mdl4, gid, pid )
+    { model
+        | socketPlayersDict =
+            adjoinToSocketPlayersDict gameid
+                playerid
+                socket
+                model.socketPlayersDict
+        , playerSocketDict =
+            Dict.insert playerid socket model.playerSocketDict
+        , gamePlayersDict =
+            Dict.insert gameid playerids model.gamePlayersDict
+    }
 
 
 adjoinToSocketGamesDict : GameId -> Socket -> Dict Socket (List GameId) -> Dict Socket (List GameId)
@@ -961,79 +860,8 @@ adjoinToSocketPlayersDict gameid playerid socket dict =
     Dict.insert socket pairs dict
 
 
-{-| Generate a new, random player id for the passed PlayerId on the passed GameId.
-
-Update the Model.state tables, changing old to new.
-
-Insert new in the Model.xxxDict tables.
-
-Your `ServerMessageProcessor` will often generate fixed ids or incrementing integers. This makes them unique and secure.
-
--}
-updatePlayerid : WrappedModel servermodel message gamestate player -> Socket -> GameId -> PlayerId -> ( WrappedModel servermodel message gamestate player, GameId, PlayerId )
-updatePlayerid (WrappedModel model) socket gameid playerid =
-    let
-        ( pid, WrappedModel mdl2 ) =
-            newPlayerid (WrappedModel model)
-
-        sockets =
-            case Dict.get gameid mdl2.gameSocketsDict of
-                Nothing ->
-                    [ socket ]
-
-                Just socks ->
-                    if List.member socket socks then
-                        socks
-                    else
-                        socket :: socks
-
-        playerids =
-            case Dict.get gameid mdl2.gamePlayersDict of
-                Nothing ->
-                    [ pid ]
-
-                Just pids ->
-                    pid :: pids
-
-        state =
-            mdl2.state
-
-        playerDict =
-            case Dict.get playerid state.playerDict of
-                Nothing ->
-                    state.playerDict
-
-                Just info ->
-                    Dict.insert pid info <|
-                        Dict.remove playerid state.playerDict
-
-        mdl3 =
-            { mdl2
-                | socketPlayersDict =
-                    adjoinToSocketPlayersDict gameid
-                        pid
-                        socket
-                        mdl2.socketPlayersDict
-                , playerSocketDict =
-                    Dict.insert pid socket mdl2.playerSocketDict
-                , gamePlayersDict =
-                    Dict.insert gameid playerids mdl2.gamePlayersDict
-                , state =
-                    { state
-                        | playerDict = playerDict
-                    }
-            }
-    in
-    ( WrappedModel mdl3, gameid, pid )
-
-
-{-| Remove a game from the Model.xxxDict tables.
-
-Your code is responsible for removing it from the Model.state tables.
-
--}
-removeGame : WrappedModel servermodel message gamestate player -> GameId -> WrappedModel servermodel message gamestate player
-removeGame (WrappedModel model) gameid =
+removeGame : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+removeGame gameid model =
     let
         mdl2 =
             let
@@ -1071,10 +899,9 @@ removeGame (WrappedModel model) gameid =
                                 players
                     }
     in
-    WrappedModel
-        { mdl3
-            | gamePlayersDict = Dict.remove gameid mdl2.gamePlayersDict
-        }
+    { mdl3
+        | gamePlayersDict = Dict.remove gameid mdl2.gamePlayersDict
+    }
 
 
 removeFromSocketGamesDict : GameId -> Socket -> Dict Socket (List GameId) -> Dict Socket (List GameId)
@@ -1092,16 +919,11 @@ removeFromSocketGamesDict gameid socket dict =
                     Dict.insert socket gids2 dict
 
 
-{-| Remove a player from the Model.xxxDict tables.
-
-Your code is responsible for removing it from the Model.state tables.
-
--}
-removePlayer : WrappedModel servermodel message gamestate player -> GameId -> PlayerId -> Bool -> WrappedModel servermodel message gamestate player
-removePlayer (WrappedModel model) gameid playerid keepGame =
+removePlayer : ( GameId, PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+removePlayer ( gameid, playerid ) model =
     case Dict.get gameid model.gamePlayersDict of
         Nothing ->
-            WrappedModel model
+            model
 
         Just playerids ->
             let
@@ -1117,27 +939,17 @@ removePlayer (WrappedModel model) gameid playerid keepGame =
                                         model.socketPlayersDict
                             }
             in
-            case LE.remove playerid playerids of
-                [] ->
-                    if keepGame then
-                        WrappedModel
-                            { mdl
-                                | gamePlayersDict =
-                                    Dict.remove gameid mdl.gamePlayersDict
-                            }
-                    else
-                        removeGame (WrappedModel mdl) gameid
+            { mdl
+                | gamePlayersDict =
+                    case LE.remove playerid playerids of
+                        [] ->
+                            Dict.remove gameid model.gamePlayersDict
 
-                playerids ->
-                    WrappedModel
-                        { mdl
-                            | gamePlayersDict =
-                                Dict.insert gameid
-                                    (LE.remove playerid playerids)
-                                    model.gamePlayersDict
-                            , playerSocketDict =
-                                Dict.remove playerid model.playerSocketDict
-                        }
+                        playerids ->
+                            Dict.insert gameid playerids model.gamePlayersDict
+                , playerSocketDict =
+                    Dict.remove playerid model.playerSocketDict
+            }
 
 
 removeFromSocketPlayersDict : PlayerId -> Socket -> Dict Socket (List PlayerId) -> Dict Socket (List PlayerId)
