@@ -57,7 +57,6 @@ import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE
 import List.Extra as LE
 import Platform exposing (Program)
-import Random exposing (Generator, Seed)
 import Task
 import Time exposing (Time)
 import WebSocketFramework.EncodeDecode exposing (decodeMessage, encodeMessage)
@@ -214,7 +213,6 @@ type alias Model servermodel message gamestate player =
     , deathWatchPlayers : List ( Time, GameId, PlayerId )
     , deathWatchPlayerids : Dict PlayerId Bool
     , time : Time
-    , seed : Seed
     }
 
 
@@ -247,7 +245,6 @@ init servermodel userFunctions gamestate verbose =
       , deathWatchPlayers = []
       , deathWatchPlayerids = Dict.empty
       , time = 0
-      , seed = Random.initialSeed 0
       }
     , Task.perform FirstTick Time.now
     )
@@ -302,13 +299,8 @@ update message model =
             socketMessage model socket message
 
         FirstTick time ->
-            let
-                seed =
-                    Random.initialSeed <| round time
-            in
             ( { model
                 | time = time
-                , seed = seed
               }
             , Cmd.none
             )
