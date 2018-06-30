@@ -57,6 +57,7 @@ import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE
 import List.Extra as LE
 import Platform exposing (Program)
+import Random
 import Task
 import Time exposing (Time)
 import WebSocketFramework.EncodeDecode exposing (decodeMessage, encodeMessage)
@@ -299,8 +300,18 @@ update message model =
             socketMessage model socket message
 
         FirstTick time ->
+            let
+                state =
+                    model.state
+            in
             ( { model
                 | time = time
+                , state =
+                    { state
+                        | seed =
+                            Random.initialSeed <|
+                                round time
+                    }
               }
             , Cmd.none
             )
