@@ -812,7 +812,11 @@ recordPlayerid socket ( gameid, playerid ) model =
                     playerid :: pids
     in
     { model
-        | socketPlayersDict =
+        | socketGamesDict =
+            adjoinToSocketGamesDict gameid socket model.socketGamesDict
+        , gameSocketsDict =
+            Dict.insert gameid sockets model.gameSocketsDict
+        , socketPlayersDict =
             adjoinToSocketPlayersDict gameid
                 playerid
                 socket
@@ -833,7 +837,10 @@ adjoinToSocketGamesDict gameid socket dict =
                     [ gameid ]
 
                 Just gids ->
-                    gameid :: gids
+                    if List.member gameid gids then
+                        gids
+                    else
+                        gameid :: gids
     in
     Dict.insert socket gids dict
 
@@ -942,21 +949,6 @@ removePlayer ( gameid, playerid ) model =
                 , playerSocketDict =
                     Dict.remove playerid model.playerSocketDict
             }
-
-
-removeFromSocketPlayersDict : PlayerId -> Socket -> Dict Socket (List PlayerId) -> Dict Socket (List PlayerId)
-removeFromSocketPlayersDict playerid socket dict =
-    case Dict.get socket dict of
-        Nothing ->
-            dict
-
-        Just pids ->
-            case LE.remove playerid pids of
-                [] ->
-                    Dict.remove socket dict
-
-                pids2 ->
-                    Dict.insert socket pids2 dict
 
 
 
