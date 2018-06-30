@@ -663,22 +663,39 @@ sendToMany verbose encoder message outputPort sockets =
 If `(verbose model)` is true, log the operation on the console.
 
 -}
-sendToOthers : GameId -> Socket -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> OutputPort Msg -> Cmd Msg
-sendToOthers gameid socket model encoder message outputPort =
-    sendToMany (verbose model) encoder message outputPort <|
+sendToOthers : GameId -> Socket -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
+sendToOthers gameid socket model encoder message =
+    let
+        (WrappedModel mdl) =
+            model
+
+        outputPort =
+            mdl.userFunctions.outputPort
+    in
+    sendToMany mdl.verbose encoder message outputPort <|
         otherSockets gameid socket model
 
 
-{-| Encode a message to all the sockets for a GameId via an output port.
+{-| Encode a message to all the sockets for a GameId.
 
 If `(verbose model)` is true, log the operation on the console.
 
 -}
-sendToAll : GameId -> Socket -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> OutputPort Msg -> Cmd Msg
-sendToAll gameid socket model encoder message outputPort =
-    sendToMany (verbose model) encoder message outputPort <|
-        socket
-            :: otherSockets gameid socket model
+sendToAll : GameId -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
+sendToAll gameid model encoder message =
+    let
+        (WrappedModel mdl) =
+            model
+
+        outputPort =
+            mdl.userFunctions.outputPort
+    in
+    case Dict.get gameid mdl.gameSocketsDict of
+        Nothing ->
+            Cmd.none
+
+        Just sockets ->
+            sendToMany mdl.verbose encoder message outputPort sockets
 
 
 socketMessage : Model servermodel message gamestate player -> Socket -> String -> ( Model servermodel message gamestate player, Cmd Msg )
