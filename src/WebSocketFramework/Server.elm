@@ -11,8 +11,10 @@ module WebSocketFramework.Server
         , init
         , otherSockets
         , program
+        , sendToAll
         , sendToMany
         , sendToOne
+        , sendToOthers
         , verbose
         )
 
@@ -36,7 +38,7 @@ module WebSocketFramework.Server
 
 # Message sending
 
-@docs sendToOne, sendToMany
+@docs sendToOne, sendToMany, sendToOthers, sendToAll
 
 
 # Utilities
@@ -654,6 +656,29 @@ sendToMany verbose encoder message outputPort sockets =
         (maybeLog verbose "sendToMany" <| encodeMessage encoder message)
         (maybeLog verbose "  " sockets)
         |> Cmd.batch
+
+
+{-| Encode a message to all the sockets for a GameId except the passed one.
+
+If `(verbose model)` is true, log the operation on the console.
+
+-}
+sendToOthers : GameId -> Socket -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> OutputPort Msg -> Cmd Msg
+sendToOthers gameid socket model encoder message outputPort =
+    sendToMany (verbose model) encoder message outputPort <|
+        otherSockets gameid socket model
+
+
+{-| Encode a message to all the sockets for a GameId via an output port.
+
+If `(verbose model)` is true, log the operation on the console.
+
+-}
+sendToAll : GameId -> Socket -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> OutputPort Msg -> Cmd Msg
+sendToAll gameid socket model encoder message outputPort =
+    sendToMany (verbose model) encoder message outputPort <|
+        socket
+            :: otherSockets gameid socket model
 
 
 socketMessage : Model servermodel message gamestate player -> Socket -> String -> ( Model servermodel message gamestate player, Cmd Msg )
