@@ -126,7 +126,7 @@ This will only happen if your server code tracks the association between sockets
 
 -}
 type alias ServerGamesDeleter servermodel message gamestate player =
-    WrappedModel servermodel message gamestate player -> List GameId -> ServerState gamestate player -> WrappedModel servermodel message gamestate player
+    WrappedModel servermodel message gamestate player -> List GameId -> ServerState gamestate player -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
 
 
 {-| Called when players are auto-deleted due to socket connections being lost.
@@ -135,7 +135,7 @@ This will only happen if your server code tracks the association between sockets
 
 -}
 type alias ServerPlayersDeleter servermodel message gamestate player =
-    WrappedModel servermodel message gamestate player -> List PlayerId -> ServerState gamestate player -> WrappedModel servermodel message gamestate player
+    WrappedModel servermodel message gamestate player -> List PlayerId -> ServerState gamestate player -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
 
 
 {-| A type wrapper to prevent recursive types in `Model`.
@@ -317,9 +317,7 @@ update message model =
             )
 
         Tick time ->
-            ( doExecutions { model | time = time }
-            , Cmd.none
-            )
+            doExecutions { model | time = time }
 
         Noop ->
             ( model, Cmd.none )
@@ -330,13 +328,13 @@ removeField value accessor records =
     List.filter (\record -> accessor record /= value) records
 
 
-killGame : Model servermodel message gamestate player -> GameId -> Model servermodel message gamestate player
+killGame : Model servermodel message gamestate player -> GameId -> ( Model servermodel message gamestate player, Cmd Msg )
 killGame model gameid =
     let
-        (WrappedModel mdl) =
+        ( WrappedModel mdl, cmd ) =
             case model.userFunctions.gamesDeleter of
                 Nothing ->
-                    WrappedModel model
+                    ( WrappedModel model, Cmd.none )
 
                 Just deleter ->
                     deleter (WrappedModel model) [ gameid ] model.state
@@ -364,15 +362,16 @@ killGame model gameid =
             }
         , gamePlayersDict = Dict.remove gameid model.gamePlayersDict
     }
+        ! [ cmd ]
 
 
-killPlayer : Model servermodel message gamestate player -> GameId -> PlayerId -> Model servermodel message gamestate player
+killPlayer : Model servermodel message gamestate player -> GameId -> PlayerId -> ( Model servermodel message gamestate player, Cmd Msg )
 killPlayer model gameid playerid =
     let
-        (WrappedModel mdl) =
+        ( WrappedModel mdl, cmd ) =
             case model.userFunctions.playersDeleter of
                 Nothing ->
-                    WrappedModel model
+                    ( WrappedModel model, Cmd.none )
 
                 Just deleter ->
                     deleter (WrappedModel model) [ playerid ] model.state
@@ -403,6 +402,7 @@ killPlayer model gameid playerid =
             }
         , gamePlayersDict = gamePlayersDict
     }
+        ! [ cmd ]
 
 
 deathRowDuration : Time
@@ -410,59 +410,66 @@ deathRowDuration =
     30 * Time.second
 
 
-doExecutions : Model servermodel message gamestate player -> Model servermodel message gamestate player
+doExecutions : Model servermodel message gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
 doExecutions model =
     let
         time =
             model.time
 
         gameLoop =
-            \mod watches ->
+            \( mod, cmd ) watches ->
                 case watches of
                     [] ->
-                        mod
+                        ( mod, cmd )
 
                     ( tim, gid ) :: tail ->
                         if time >= tim then
+                            let
+                                ( m, c ) =
+                                    killGame
+                                        { mod
+                                            | deathWatch = tail
+                                            , deathWatchGameids =
+                                                Dict.remove gid
+                                                    mod.deathWatchGameids
+                                        }
+                                        gid
+                            in
                             gameLoop
-                                (killGame
-                                    { mod
-                                        | deathWatch = tail
-                                        , deathWatchGameids =
-                                            Dict.remove gid mod.deathWatchGameids
-                                    }
-                                    gid
-                                )
+                                (m ! [ cmd, c ])
                                 tail
                         else
-                            mod
+                            ( mod, cmd )
 
         playerLoop =
-            \mod watches ->
+            \( mod, cmd ) watches ->
                 case watches of
                     [] ->
-                        mod
+                        ( mod, cmd )
 
                     ( tim, gid, pid ) :: tail ->
                         if time >= tim then
+                            let
+                                ( m, c ) =
+                                    killPlayer
+                                        { mod
+                                            | deathWatchPlayers = tail
+                                            , deathWatchPlayerids =
+                                                Dict.remove pid mod.deathWatchPlayerids
+                                        }
+                                        gid
+                                        pid
+                            in
                             playerLoop
-                                (killPlayer
-                                    { mod
-                                        | deathWatchPlayers = tail
-                                        , deathWatchPlayerids =
-                                            Dict.remove pid mod.deathWatchPlayerids
-                                    }
-                                    gid
-                                    pid
-                                )
+                                (m ! [ cmd, c ])
                                 tail
                         else
-                            mod
+                            ( mod, cmd )
 
-        mdl =
-            gameLoop model model.deathWatch
+        pair =
+            gameLoop (model ! []) model.deathWatch
     in
-    playerLoop mdl model.deathWatchPlayers
+    playerLoop pair model.deathWatchPlayers
 
 
 deathWatchGame : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
