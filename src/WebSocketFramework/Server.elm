@@ -505,8 +505,8 @@ deathWatchGame gameid model =
                 }
 
 
-reprieve : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-reprieve gameid model =
+reprieve : GameId -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+reprieve gameid socket model =
     let
         gameids =
             model.deathWatchGameids
@@ -516,11 +516,32 @@ reprieve gameid model =
             model
 
         Just _ ->
+            let
+                sockets =
+                    case Dict.get gameid model.gameSocketsDict of
+                        Nothing ->
+                            [ socket ]
+
+                        Just socks ->
+                            adjoin socket socks
+
+                games =
+                    case Dict.get socket model.socketGamesDict of
+                        Nothing ->
+                            [ gameid ]
+
+                        Just gids ->
+                            adjoin gameid gids
+            in
             { model
                 | deathWatchGameids =
                     Dict.remove (maybeLog model.verbose "reprieve" gameid) gameids
                 , deathWatch =
                     List.filter (\( _, gid ) -> gid /= gameid) model.deathWatch
+                , gameSocketsDict =
+                    Dict.insert gameid sockets model.gameSocketsDict
+                , socketGamesDict =
+                    Dict.insert socket games model.socketGamesDict
             }
 
 
@@ -544,8 +565,16 @@ deathWatchPlayer ( gameid, playerid ) model =
             }
 
 
-reprievePlayer : PlayerId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-reprievePlayer playerid model =
+adjoin : a -> List a -> List a
+adjoin a list =
+    if List.member a list then
+        list
+    else
+        a :: list
+
+
+reprievePlayer : PlayerId -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+reprievePlayer playerid socket model =
     let
         playerids =
             model.deathWatchPlayerids
@@ -555,12 +584,55 @@ reprievePlayer playerid model =
             model
 
         Just _ ->
-            { model
+            let
+                mod =
+                    case Dict.get playerid model.state.playerDict of
+                        Nothing ->
+                            model
+
+                        Just { gameid } ->
+                            let
+                                players =
+                                    case Dict.get socket model.socketPlayersDict of
+                                        Nothing ->
+                                            [ ( gameid, playerid ) ]
+
+                                        Just pids ->
+                                            adjoin ( gameid, playerid ) pids
+
+                                sockets =
+                                    case Dict.get gameid model.gameSocketsDict of
+                                        Nothing ->
+                                            [ socket ]
+
+                                        Just socks ->
+                                            adjoin socket socks
+
+                                games =
+                                    case Dict.get socket model.socketGamesDict of
+                                        Nothing ->
+                                            [ gameid ]
+
+                                        Just gids ->
+                                            adjoin gameid gids
+                            in
+                            { model
+                                | socketPlayersDict =
+                                    Dict.insert socket players model.socketPlayersDict
+                                , gameSocketsDict =
+                                    Dict.insert gameid sockets model.gameSocketsDict
+                                , socketGamesDict =
+                                    Dict.insert socket games model.socketGamesDict
+                            }
+            in
+            { mod
                 | deathWatchPlayerids =
                     Dict.remove (maybeLog model.verbose "reprievePlayer" playerid) playerids
                 , deathWatchPlayers =
                     List.filter (\( _, _, pid ) -> pid /= playerid)
-                        model.deathWatchPlayers
+                        mod.deathWatchPlayers
+                , playerSocketDict =
+                    Dict.insert playerid socket mod.playerSocketDict
             }
 
 
@@ -737,7 +809,7 @@ socketMessage model socket request =
                     processAddsAndRemoves socket model state
 
                 mod =
-                    maybeReprieve message mdl
+                    maybeReprieve message socket mdl
             in
             case rsp of
                 Nothing ->
@@ -746,7 +818,7 @@ socketMessage model socket request =
                 Just response ->
                     let
                         mod2 =
-                            maybeReprieve response mod
+                            maybeReprieve response socket mod
 
                         ( WrappedModel mod3, cmd ) =
                             userFunctions.messageSender
@@ -759,8 +831,8 @@ socketMessage model socket request =
                     ( mod3, cmd )
 
 
-maybeReprieve : message -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-maybeReprieve message model =
+maybeReprieve : message -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+maybeReprieve message socket model =
     let
         mod =
             case model.userFunctions.messageToGameid of
@@ -773,7 +845,7 @@ maybeReprieve message model =
                             model
 
                         Just gameid ->
-                            reprieve gameid model
+                            reprieve gameid socket model
     in
     case model.userFunctions.messageToPlayerid of
         Nothing ->
@@ -785,7 +857,7 @@ maybeReprieve message model =
                     mod
 
                 Just playerid ->
-                    reprievePlayer playerid mod
+                    reprievePlayer playerid socket mod
 
 
 {-| Return sockets associated with a game.
