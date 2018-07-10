@@ -1,5 +1,5 @@
 {
-    "version": "10.0.1",
+    "version": "11.0.0",
     "summary": "This is the server side of billstclair/elm-websocket-framework",
     "repository": "https://github.com/billstclair/elm-websocket-framework-server.git",
     "license": "MIT",
@@ -11,7 +11,7 @@
     ],
     "dependencies": {
         "RGBboy/websocket-server": "1.0.1 <= v < 2.0.0",
-        "billstclair/elm-websocket-framework": "9.0.0 <= v < 10.0.0",
+        "billstclair/elm-websocket-framework": "11.0.0 <= v < 12.0.0",
         "elm-community/list-extra": "6.1.0 <= v < 7.0.0",
         "elm-lang/core": "5.1.1 <= v < 6.0.0"
     },

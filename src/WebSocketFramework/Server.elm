@@ -63,11 +63,10 @@ import Random
 import Task
 import Time exposing (Time)
 import WebSocketFramework.EncodeDecode exposing (decodeMessage, encodeMessage)
-import WebSocketFramework.ServerInterface
+import WebSocketFramework.ServerInterface as ServerInterface
     exposing
         ( errorRsp
-        , getGamePlayers
-        , removePublicGame
+        , getPlayer
         , send
         )
 import WebSocketFramework.Types
@@ -339,16 +338,16 @@ killGame model gameid =
         state =
             mdl.state
 
-        playerDict =
-            List.foldl Dict.remove state.playerDict <|
-                getGamePlayers gameid state
+        state2 =
+            ServerInterface.removeGame gameid state
     in
     { mdl
         | state =
+            -- We don't just use state2 here, because we don't
+            -- want the `changes` additions.
             { state
-                | gameDict = Dict.remove gameid state.gameDict
-                , playerDict = playerDict
-                , publicGames = removePublicGame gameid state.publicGames
+                | dicts = state2.dicts
+                , publicGames = state2.publicGames
             }
     }
         ! [ cmd ]
@@ -367,14 +366,16 @@ killPlayer model gameid playerid =
 
         state =
             mdl.state
+
+        state2 =
+            ServerInterface.removePlayer playerid state
     in
     { mdl
         | state =
+            -- We don't just use state2 here, because we don't
+            -- want the `changes` additions.
             { state
-                | playerDict =
-                    Dict.remove
-                        (maybeLog mdl.verbose "killPlayer" playerid)
-                        state.playerDict
+                | dicts = state2.dicts
             }
     }
         ! [ cmd ]
@@ -559,7 +560,7 @@ reprievePlayer playerid socket model =
         Just _ ->
             let
                 mod =
-                    case Dict.get playerid model.state.playerDict of
+                    case getPlayer playerid model.state of
                         Nothing ->
                             model
 
