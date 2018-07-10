@@ -66,6 +66,8 @@ import WebSocketFramework.EncodeDecode exposing (decodeMessage, encodeMessage)
 import WebSocketFramework.ServerInterface
     exposing
         ( errorRsp
+        , getGamePlayers
+        , removePublicGame
         , send
         )
 import WebSocketFramework.Types
@@ -205,7 +207,6 @@ type alias Model servermodel message gamestate player =
     , userFunctions : UserFunctions servermodel message gamestate player
     , state : ServerState gamestate player
     , verbose : Bool
-    , gamePlayersDict : Dict GameId (List PlayerId)
     , gameSocketsDict : Dict GameId (List Socket)
     , socketGamesDict : Dict Socket (List GameId)
     , playerSocketDict : Dict PlayerId Socket
@@ -237,7 +238,6 @@ init servermodel userFunctions gamestate verbose =
       , userFunctions = userFunctions
       , state = emptyServerState gamestate
       , verbose = verbose /= Nothing
-      , gamePlayersDict = Dict.empty
       , gameSocketsDict = Dict.empty
       , socketGamesDict = Dict.empty
       , playerSocketDict = Dict.empty
@@ -325,11 +325,6 @@ update message model =
             ( model, Cmd.none )
 
 
-removeField : value -> (record -> value) -> List record -> List record
-removeField value accessor records =
-    List.filter (\record -> accessor record /= value) records
-
-
 killGame : Model servermodel message gamestate player -> GameId -> ( Model servermodel message gamestate player, Cmd Msg )
 killGame model gameid =
     let
@@ -345,24 +340,16 @@ killGame model gameid =
             mdl.state
 
         playerDict =
-            case
-                Dict.get (maybeLog model.verbose "killgame" gameid)
-                    model.gamePlayersDict
-            of
-                Nothing ->
-                    state.playerDict
-
-                Just ids ->
-                    List.foldl Dict.remove state.playerDict ids
+            List.foldl Dict.remove state.playerDict <|
+                getGamePlayers gameid state
     in
     { mdl
         | state =
             { state
                 | gameDict = Dict.remove gameid state.gameDict
                 , playerDict = playerDict
-                , publicGames = removeField gameid .gameid state.publicGames
+                , publicGames = removePublicGame gameid state.publicGames
             }
-        , gamePlayersDict = Dict.remove gameid model.gamePlayersDict
     }
         ! [ cmd ]
 
@@ -380,19 +367,6 @@ killPlayer model gameid playerid =
 
         state =
             mdl.state
-
-        gamePlayersDict =
-            case Dict.get gameid mdl.gamePlayersDict of
-                Nothing ->
-                    mdl.gamePlayersDict
-
-                Just playerids ->
-                    case LE.remove playerid playerids of
-                        [] ->
-                            Dict.remove playerid mdl.gamePlayersDict
-
-                        pids ->
-                            Dict.insert playerid pids mdl.gamePlayersDict
     in
     { mdl
         | state =
@@ -402,7 +376,6 @@ killPlayer model gameid playerid =
                         (maybeLog mdl.verbose "killPlayer" playerid)
                         state.playerDict
             }
-        , gamePlayersDict = gamePlayersDict
     }
         ! [ cmd ]
 
@@ -934,14 +907,6 @@ recordPlayerid socket ( gameid, playerid ) model =
                         socks
                     else
                         socket :: socks
-
-        playerids =
-            case Dict.get gameid model.gamePlayersDict of
-                Nothing ->
-                    [ playerid ]
-
-                Just pids ->
-                    playerid :: pids
     in
     { model
         | socketGamesDict =
@@ -955,8 +920,6 @@ recordPlayerid socket ( gameid, playerid ) model =
                 model.socketPlayersDict
         , playerSocketDict =
             Dict.insert playerid socket model.playerSocketDict
-        , gamePlayersDict =
-            Dict.insert gameid playerids model.gamePlayersDict
     }
 
 
@@ -991,8 +954,8 @@ adjoinToSocketPlayersDict gameid playerid socket dict =
     Dict.insert socket pairs dict
 
 
-removeGame : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-removeGame gameid model =
+removeGame : ( GameId, List PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
+removeGame ( gameid, pids ) model =
     let
         mdl2 =
             let
@@ -1016,22 +979,10 @@ removeGame gameid model =
                         model.socketPlayersDict
                         sockets
             }
-
-        mdl3 =
-            case Dict.get gameid mdl2.gamePlayersDict of
-                Nothing ->
-                    mdl2
-
-                Just players ->
-                    { mdl2
-                        | playerSocketDict =
-                            List.foldl Dict.remove
-                                model.playerSocketDict
-                                players
-                    }
     in
-    { mdl3
-        | gamePlayersDict = Dict.remove gameid mdl2.gamePlayersDict
+    { mdl2
+        | playerSocketDict =
+            List.foldl Dict.remove model.playerSocketDict pids
     }
 
 
@@ -1052,35 +1003,23 @@ removeFromSocketGamesDict gameid socket dict =
 
 removePlayer : ( GameId, PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
 removePlayer ( gameid, playerid ) model =
-    case Dict.get gameid model.gamePlayersDict of
-        Nothing ->
-            model
+    let
+        mdl =
+            case Dict.get playerid model.playerSocketDict of
+                Nothing ->
+                    model
 
-        Just playerids ->
-            let
-                mdl =
-                    case Dict.get playerid model.playerSocketDict of
-                        Nothing ->
-                            model
-
-                        Just socket ->
-                            { model
-                                | socketPlayersDict =
-                                    Dict.remove socket
-                                        model.socketPlayersDict
-                            }
-            in
-            { mdl
-                | gamePlayersDict =
-                    case LE.remove playerid playerids of
-                        [] ->
-                            Dict.remove gameid model.gamePlayersDict
-
-                        playerids ->
-                            Dict.insert gameid playerids model.gamePlayersDict
-                , playerSocketDict =
-                    Dict.remove playerid model.playerSocketDict
-            }
+                Just socket ->
+                    { model
+                        | socketPlayersDict =
+                            Dict.remove socket
+                                model.socketPlayersDict
+                    }
+    in
+    { mdl
+        | playerSocketDict =
+            Dict.remove playerid model.playerSocketDict
+    }
 
 
 
