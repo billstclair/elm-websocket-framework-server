@@ -10,7 +10,6 @@ module WebSocketFramework.Server
         , getServerModel
         , getState
         , getTime
-        , init
         , otherSockets
         , program
         , sendToAll
@@ -38,7 +37,7 @@ module WebSocketFramework.Server
 
 # Top-level program
 
-@docs program, init
+@docs program
 
 
 # Message sending
@@ -105,7 +104,7 @@ import WebSocketServer as WSS
 
 You will usually use the result of this function as the value of `main` in your top-level module.
 
-Most servers will not need to use the `servermodel`, but it's a place to stash extra server-wide state that doesn't make sense in the game-specific `gamestate`.
+Most servers will not need to use the `servermodel`, but it's a place to stash extra server-wide state that doesn't make sense in the game-specific `gamestate`, which is stored in the `ServerModel`, accessible via `getServerModel`.
 
 -}
 program : servermodel -> UserFunctions servermodel message gamestate player -> Maybe gamestate -> Program (Maybe String) (Model servermodel message gamestate player) Msg
@@ -138,6 +137,8 @@ type alias ServerMessageSender servermodel message gamestate player =
 
 This will only happen if your server code tracks the association between sockets, games and players in the `xxxDict` properties of the Model. When tracked games are dropped, this function, stored in the `gamesDeleter` property of `UserFunctions`, is called, so that you can clean up any reference to those games in your `gamestate`.
 
+It is called BEFORE the game information is removed from the `ServerState`.
+
 -}
 type alias ServerGamesDeleter servermodel message gamestate player =
     WrappedModel servermodel message gamestate player -> List GameId -> ServerState gamestate player -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
@@ -146,6 +147,8 @@ type alias ServerGamesDeleter servermodel message gamestate player =
 {-| Called when players are auto-deleted due to socket connections being lost.
 
 This will only happen if your server code tracks the association between sockets, games and players in the `xxxDict` properties of the Model. When tracked players are dropped, this function, stored in the `playersDelete` property of `UserFunctions`, is called, so that you can clean up any reference to those players in your `gamestate`.
+
+It is called BEFORE the player information is removed from the `ServerState`.
 
 -}
 type alias ServerPlayersDeleter servermodel message gamestate player =
@@ -297,11 +300,6 @@ verbose (WrappedModel model) =
     model.verbose
 
 
-{-| Return the initial `Model` and a `Cmd` to get the current time.
-
-Usually called for you by `program`.
-
--}
 init : servermodel -> UserFunctions servermodel message gamestate player -> Maybe gamestate -> Maybe String -> ( Model servermodel message gamestate player, Cmd Msg )
 init servermodel userFunctions gamestate verbose =
     ( { servermodel = servermodel
