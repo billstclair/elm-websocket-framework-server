@@ -1,13 +1,15 @@
 module WebSocketFramework.Server
     exposing
-        ( Model
-        , Msg(..)
-        , ServerGamesDeleter
+        ( ServerGamesDeleter
         , ServerMessageSender
         , ServerPlayersDeleter
         , Socket
         , UserFunctions
-        , WrappedModel(WrappedModel)
+        , WrappedModel
+        , getDeathRowDuration
+        , getServerModel
+        , getState
+        , getTime
         , init
         , otherSockets
         , program
@@ -15,6 +17,9 @@ module WebSocketFramework.Server
         , sendToMany
         , sendToOne
         , sendToOthers
+        , setDeathRowDuration
+        , setServerModel
+        , setState
         , verbose
         )
 
@@ -23,7 +28,7 @@ module WebSocketFramework.Server
 
 # Types
 
-@docs Model, Msg, WrappedModel, Socket
+@docs WrappedModel, Socket
 
 
 # Callbacks
@@ -39,6 +44,12 @@ module WebSocketFramework.Server
 # Message sending
 
 @docs sendToOne, sendToMany, sendToOthers, sendToAll
+
+
+# State accessors
+
+@docs getState, setState, getServerModel, setServerModel
+@docs getDeathRowDuration, setDeathRowDuration, getTime
 
 
 # Utilities
@@ -138,16 +149,16 @@ This will only happen if your server code tracks the association between sockets
 
 -}
 type alias ServerPlayersDeleter servermodel message gamestate player =
-    WrappedModel servermodel message gamestate player -> List PlayerId -> ServerState gamestate player -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
+    WrappedModel servermodel message gamestate player -> GameId -> List PlayerId -> ServerState gamestate player -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
 
 
-{-| A type wrapper to prevent recursive types in `Model`.
+{-| An opaque type containing the application state.
 -}
 type WrappedModel servermodel message gamestate player
     = WrappedModel (Model servermodel message gamestate player)
 
 
-{-| An alias of WebSocketServer.Socket.
+{-| An alias of `WebSocketServer.Socket`.
 -}
 type alias Socket =
     WSS.Socket
@@ -190,6 +201,8 @@ type alias UserFunctions servermodel message gamestate player =
 
 {-| The server application model.
 
+NOT exposed.
+
 `program` creates one of these, via a call to `init`.
 
 The four `Dict`s, mapping games, players, and sockets to each other, are used to give some time for a lost connection to come back. You must call the functions that maintain them, if you want those features.
@@ -217,6 +230,64 @@ type alias Model servermodel message gamestate player =
     , deathWatchPlayerids : Dict PlayerId Bool
     , time : Time
     }
+
+
+{-| Get the servermodel from a model.
+-}
+getServerModel : WrappedModel servermodel message gamestate player -> servermodel
+getServerModel (WrappedModel model) =
+    model.servermodel
+
+
+{-| Set the servermodel in a model.
+-}
+setServerModel : WrappedModel servermodel message gamestate player -> servermodel -> WrappedModel servermodel message gamestate player
+setServerModel (WrappedModel model) servermodel =
+    WrappedModel { model | servermodel = servermodel }
+
+
+{-| Get the servermodel from a model.
+-}
+getState : WrappedModel servermodel message gamestate player -> ServerState gamestate player
+getState (WrappedModel model) =
+    model.state
+
+
+{-| Set the ServerState in a model.
+-}
+setState : WrappedModel servermodel message gamestate player -> ServerState gamestate player -> WrappedModel servermodel message gamestate player
+setState (WrappedModel model) state =
+    WrappedModel { model | state = state }
+
+
+{-| Get the death row duration from a model.
+
+This is the time a game or player sticks around after no connections reference it.
+
+-}
+getDeathRowDuration : WrappedModel servermodel message gamestate player -> Time
+getDeathRowDuration (WrappedModel model) =
+    model.deathRowDuration
+
+
+{-| Set the death row duration in a model.
+
+This is the time a game or player sticks around after no connections reference it.
+
+-}
+setDeathRowDuration : WrappedModel servermodel message gamestate player -> Time -> WrappedModel servermodel message gamestate player
+setDeathRowDuration (WrappedModel model) deathRowDuration =
+    WrappedModel { model | deathRowDuration = deathRowDuration }
+
+
+{-| Get the current time from a model.
+
+The time is updated once a second.
+
+-}
+getTime : WrappedModel servermodel message gamestate player -> Time
+getTime (WrappedModel model) =
+    model.time
 
 
 {-| Return whether VERBOSE is set in the server's environment
@@ -362,7 +433,7 @@ killPlayer model gameid playerid =
                     ( WrappedModel model, Cmd.none )
 
                 Just deleter ->
-                    deleter (WrappedModel model) [ playerid ] model.state
+                    deleter (WrappedModel model) gameid [ playerid ] model.state
 
         state =
             mdl.state

@@ -11,10 +11,8 @@ import ExampleInterface
         )
 import WebSocketFramework.Server
     exposing
-        ( Msg
-        , ServerMessageSender
+        ( ServerMessageSender
         , UserFunctions
-        , WrappedModel
         , program
         , sendToOne
         , verbose
