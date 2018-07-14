@@ -1,11 +1,11 @@
 module WebSocketFramework.Server
     exposing
-        ( ServerGamesDeleter
+        ( Model
+        , ServerGamesDeleter
         , ServerMessageSender
         , ServerPlayersDeleter
         , Socket
         , UserFunctions
-        , WrappedModel
         , getDeathRowDuration
         , getServerModel
         , getState
@@ -27,7 +27,7 @@ module WebSocketFramework.Server
 
 # Types
 
-@docs WrappedModel, Socket
+@docs Model, Socket
 
 
 # Callbacks
@@ -126,11 +126,11 @@ This will usually call `sendToOne` and/or `sendToMany` with the `message` emitte
 
 The first `message` is the request that came from client to server. The second `message` is the response. If no response is returned by the `ServiceMessageProcessor`, this function is not called.
 
-The `ServerState` arg is the value of the `state` property of the `WrappedModel` arg, pulled out for your convenience. If you change it, you must put it back in the model you return.
+The `ServerState` arg is the value of the `state` property of the `Model` arg, pulled out for your convenience. If you change it, you must put it back in the model you return.
 
 -}
 type alias ServerMessageSender servermodel message gamestate player =
-    WrappedModel servermodel message gamestate player -> Socket -> ServerState gamestate player -> message -> message -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
+    Model servermodel message gamestate player -> Socket -> ServerState gamestate player -> message -> message -> ( Model servermodel message gamestate player, Cmd Msg )
 
 
 {-| Called when games are auto-deleted due to socket connections being lost.
@@ -141,7 +141,7 @@ It is called BEFORE the game information is removed from the `ServerState`.
 
 -}
 type alias ServerGamesDeleter servermodel message gamestate player =
-    WrappedModel servermodel message gamestate player -> List GameId -> ServerState gamestate player -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
+    Model servermodel message gamestate player -> List GameId -> ServerState gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
 
 
 {-| Called when players are auto-deleted due to socket connections being lost.
@@ -152,13 +152,7 @@ It is called BEFORE the player information is removed from the `ServerState`.
 
 -}
 type alias ServerPlayersDeleter servermodel message gamestate player =
-    WrappedModel servermodel message gamestate player -> GameId -> List PlayerId -> ServerState gamestate player -> ( WrappedModel servermodel message gamestate player, Cmd Msg )
-
-
-{-| An opaque type containing the application state.
--}
-type WrappedModel servermodel message gamestate player
-    = WrappedModel (Model servermodel message gamestate player)
+    Model servermodel message gamestate player -> GameId -> List PlayerId -> ServerState gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
 
 
 {-| An alias of `WebSocketServer.Socket`.
@@ -202,65 +196,53 @@ type alias UserFunctions servermodel message gamestate player =
     }
 
 
-{-| The server application model.
-
-NOT exposed.
-
-`program` creates one of these, via a call to `init`.
-
-The four `Dict`s, mapping games, players, and sockets to each other, are used to give some time for a lost connection to come back. You must call the functions that maintain them, if you want those features.
-
-`deathRowDuration` is the time that a socket must remain disconnected before its games and players will be auto-removed. It defaults to 30 seconds.
-
-`verbose` is true to enable console logging of messages received and sent and auto-deletions. It is usually inititalized by the VERBOSE environment variable at server start time.
-
-The `deathWatch` variables are used for the auto-removal process. You shouldn't need to deal with them, other than providing `messageToGameid` and `messageToPlayerid` values for `userFunctions`.
-
+{-| An opaque type containing the application state.
 -}
-type alias Model servermodel message gamestate player =
-    { servermodel : servermodel
-    , userFunctions : UserFunctions servermodel message gamestate player
-    , state : ServerState gamestate player
-    , verbose : Bool
-    , gameSocketsDict : Dict GameId (List Socket)
-    , socketGamesDict : Dict Socket (List GameId)
-    , playerSocketDict : Dict PlayerId Socket
-    , socketPlayersDict : Dict Socket (List ( GameId, PlayerId ))
-    , deathRowDuration : Time
-    , deathWatch : List ( Time, GameId )
-    , deathWatchGameids : Dict GameId Bool
-    , deathWatchPlayers : List ( Time, GameId, PlayerId )
-    , deathWatchPlayerids : Dict PlayerId Bool
-    , time : Time
-    }
+type Model servermodel message gamestate player
+    = Model
+        { servermodel : servermodel
+        , userFunctions : UserFunctions servermodel message gamestate player
+        , state : ServerState gamestate player
+        , verbose : Bool
+        , gameSocketsDict : Dict GameId (List Socket)
+        , socketGamesDict : Dict Socket (List GameId)
+        , playerSocketDict : Dict PlayerId Socket
+        , socketPlayersDict : Dict Socket (List ( GameId, PlayerId ))
+        , deathRowDuration : Time
+        , deathWatch : List ( Time, GameId )
+        , deathWatchGameids : Dict GameId Bool
+        , deathWatchPlayers : List ( Time, GameId, PlayerId )
+        , deathWatchPlayerids : Dict PlayerId Bool
+        , time : Time
+        }
 
 
 {-| Get the servermodel from a model.
 -}
-getServerModel : WrappedModel servermodel message gamestate player -> servermodel
-getServerModel (WrappedModel model) =
+getServerModel : Model servermodel message gamestate player -> servermodel
+getServerModel (Model model) =
     model.servermodel
 
 
 {-| Set the servermodel in a model.
 -}
-setServerModel : WrappedModel servermodel message gamestate player -> servermodel -> WrappedModel servermodel message gamestate player
-setServerModel (WrappedModel model) servermodel =
-    WrappedModel { model | servermodel = servermodel }
+setServerModel : Model servermodel message gamestate player -> servermodel -> Model servermodel message gamestate player
+setServerModel (Model model) servermodel =
+    Model { model | servermodel = servermodel }
 
 
 {-| Get the servermodel from a model.
 -}
-getState : WrappedModel servermodel message gamestate player -> ServerState gamestate player
-getState (WrappedModel model) =
+getState : Model servermodel message gamestate player -> ServerState gamestate player
+getState (Model model) =
     model.state
 
 
 {-| Set the ServerState in a model.
 -}
-setState : WrappedModel servermodel message gamestate player -> ServerState gamestate player -> WrappedModel servermodel message gamestate player
-setState (WrappedModel model) state =
-    WrappedModel { model | state = state }
+setState : Model servermodel message gamestate player -> ServerState gamestate player -> Model servermodel message gamestate player
+setState (Model model) state =
+    Model { model | state = state }
 
 
 {-| Get the death row duration from a model.
@@ -268,8 +250,8 @@ setState (WrappedModel model) state =
 This is the time a game or player sticks around after no connections reference it.
 
 -}
-getDeathRowDuration : WrappedModel servermodel message gamestate player -> Time
-getDeathRowDuration (WrappedModel model) =
+getDeathRowDuration : Model servermodel message gamestate player -> Time
+getDeathRowDuration (Model model) =
     model.deathRowDuration
 
 
@@ -278,9 +260,9 @@ getDeathRowDuration (WrappedModel model) =
 This is the time a game or player sticks around after no connections reference it.
 
 -}
-setDeathRowDuration : WrappedModel servermodel message gamestate player -> Time -> WrappedModel servermodel message gamestate player
-setDeathRowDuration (WrappedModel model) deathRowDuration =
-    WrappedModel { model | deathRowDuration = deathRowDuration }
+setDeathRowDuration : Model servermodel message gamestate player -> Time -> Model servermodel message gamestate player
+setDeathRowDuration (Model model) deathRowDuration =
+    Model { model | deathRowDuration = deathRowDuration }
 
 
 {-| Get the current time from a model.
@@ -288,35 +270,36 @@ setDeathRowDuration (WrappedModel model) deathRowDuration =
 The time is updated once a second.
 
 -}
-getTime : WrappedModel servermodel message gamestate player -> Time
-getTime (WrappedModel model) =
+getTime : Model servermodel message gamestate player -> Time
+getTime (Model model) =
     model.time
 
 
 {-| Return whether VERBOSE is set in the server's environment
 -}
-verbose : WrappedModel servermodel message gamestate player -> Bool
-verbose (WrappedModel model) =
+verbose : Model servermodel message gamestate player -> Bool
+verbose (Model model) =
     model.verbose
 
 
 init : servermodel -> UserFunctions servermodel message gamestate player -> Maybe gamestate -> Maybe String -> ( Model servermodel message gamestate player, Cmd Msg )
 init servermodel userFunctions gamestate verbose =
-    ( { servermodel = servermodel
-      , userFunctions = userFunctions
-      , state = emptyServerState gamestate
-      , verbose = verbose /= Nothing
-      , gameSocketsDict = Dict.empty
-      , socketGamesDict = Dict.empty
-      , playerSocketDict = Dict.empty
-      , socketPlayersDict = Dict.empty
-      , deathRowDuration = deathRowDuration
-      , deathWatch = []
-      , deathWatchGameids = Dict.empty
-      , deathWatchPlayers = []
-      , deathWatchPlayerids = Dict.empty
-      , time = 0
-      }
+    ( Model
+        { servermodel = servermodel
+        , userFunctions = userFunctions
+        , state = emptyServerState gamestate
+        , verbose = verbose /= Nothing
+        , gameSocketsDict = Dict.empty
+        , socketGamesDict = Dict.empty
+        , playerSocketDict = Dict.empty
+        , socketPlayersDict = Dict.empty
+        , deathRowDuration = deathRowDuration
+        , deathWatch = []
+        , deathWatchGameids = Dict.empty
+        , deathWatchPlayers = []
+        , deathWatchPlayerids = Dict.empty
+        , time = 0
+        }
     , Task.perform FirstTick Time.now
     )
 
@@ -359,7 +342,11 @@ maybeLogMsg verbose msg =
 
 update : Msg -> Model servermodel message gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
 update message model =
-    case maybeLogMsg model.verbose message of
+    let
+        (Model mod) =
+            model
+    in
+    case maybeLogMsg mod.verbose message of
         Connection socket ->
             ( model, Cmd.none )
 
@@ -372,22 +359,22 @@ update message model =
         FirstTick time ->
             let
                 state =
-                    model.state
+                    mod.state
             in
-            ( { model
-                | time = time
-                , state =
-                    { state
-                        | seed =
-                            Random.initialSeed <|
-                                round time
-                    }
-              }
-            , Cmd.none
-            )
+            Model
+                { mod
+                    | time = time
+                    , state =
+                        { state
+                            | seed =
+                                Random.initialSeed <|
+                                    round time
+                        }
+                }
+                ! []
 
         Tick time ->
-            doExecutions { model | time = time }
+            doExecutions <| Model { mod | time = time }
 
         Noop ->
             ( model, Cmd.none )
@@ -396,57 +383,65 @@ update message model =
 killGame : Model servermodel message gamestate player -> GameId -> ( Model servermodel message gamestate player, Cmd Msg )
 killGame model gameid =
     let
-        ( WrappedModel mdl, cmd ) =
-            case model.userFunctions.gamesDeleter of
+        (Model mdl) =
+            model
+
+        ( Model mdl2, cmd ) =
+            case mdl.userFunctions.gamesDeleter of
                 Nothing ->
-                    ( WrappedModel model, Cmd.none )
+                    ( model, Cmd.none )
 
                 Just deleter ->
-                    deleter (WrappedModel model) [ gameid ] model.state
+                    deleter model [ gameid ] mdl.state
 
         state =
-            mdl.state
+            mdl2.state
 
         state2 =
             ServerInterface.removeGame gameid state
     in
-    { mdl
-        | state =
-            -- We don't just use state2 here, because we don't
-            -- want the `changes` additions.
-            { state
-                | dicts = state2.dicts
-                , publicGames = state2.publicGames
-            }
-    }
+    Model
+        { mdl2
+            | state =
+                -- We don't just use state2 here, because we don't
+                -- want the `changes` additions.
+                { state
+                    | dicts = state2.dicts
+                    , publicGames = state2.publicGames
+                }
+        }
         ! [ cmd ]
 
 
 killPlayer : Model servermodel message gamestate player -> GameId -> PlayerId -> ( Model servermodel message gamestate player, Cmd Msg )
 killPlayer model gameid playerid =
     let
-        ( WrappedModel mdl, cmd ) =
-            case model.userFunctions.playersDeleter of
+        (Model mdl) =
+            model
+
+        ( Model mdl2, cmd ) =
+            case mdl.userFunctions.playersDeleter of
                 Nothing ->
-                    ( WrappedModel model, Cmd.none )
+                    ( model, Cmd.none )
 
                 Just deleter ->
-                    deleter (WrappedModel model) gameid [ playerid ] model.state
+                    deleter model gameid [ playerid ] mdl.state
 
         state =
-            mdl.state
+            mdl2.state
 
         state2 =
             ServerInterface.removePlayer playerid state
     in
-    { mdl
-        | state =
-            -- We don't just use state2 here, because we don't
-            -- want the `changes` additions.
-            { state
-                | dicts = state2.dicts
-            }
-    }
+    Model
+        { mdl2
+            | state =
+                -- We don't just use state2 here, because we don't
+                -- want the `changes` additions.
+                { state
+                    | dicts = state2.dicts
+                }
+        }
         ! [ cmd ]
 
 
@@ -456,7 +451,7 @@ deathRowDuration =
 
 
 doExecutions : Model servermodel message gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
-doExecutions model =
+doExecutions (Model model) =
     let
         time =
             model.time
@@ -470,14 +465,16 @@ doExecutions model =
                     ( tim, gid ) :: tail ->
                         if time >= tim then
                             let
-                                ( m, c ) =
+                                ( Model m, c ) =
                                     killGame
-                                        { mod
-                                            | deathWatch = tail
-                                            , deathWatchGameids =
-                                                Dict.remove gid
-                                                    mod.deathWatchGameids
-                                        }
+                                        (Model
+                                            { mod
+                                                | deathWatch = tail
+                                                , deathWatchGameids =
+                                                    Dict.remove gid
+                                                        mod.deathWatchGameids
+                                            }
+                                        )
                                         gid
                             in
                             gameLoop
@@ -490,18 +487,20 @@ doExecutions model =
             \( mod, cmd ) watches ->
                 case watches of
                     [] ->
-                        ( mod, cmd )
+                        ( Model mod, cmd )
 
                     ( tim, gid, pid ) :: tail ->
                         if time >= tim then
                             let
-                                ( m, c ) =
+                                ( Model m, c ) =
                                     killPlayer
-                                        { mod
-                                            | deathWatchPlayers = tail
-                                            , deathWatchPlayerids =
-                                                Dict.remove pid mod.deathWatchPlayerids
-                                        }
+                                        (Model
+                                            { mod
+                                                | deathWatchPlayers = tail
+                                                , deathWatchPlayerids =
+                                                    Dict.remove pid mod.deathWatchPlayerids
+                                            }
+                                        )
                                         gid
                                         pid
                             in
@@ -509,7 +508,7 @@ doExecutions model =
                                 (m ! [ cmd, c ])
                                 tail
                         else
-                            ( mod, cmd )
+                            ( Model mod, cmd )
 
         pair =
             gameLoop (model ! []) model.deathWatch
@@ -518,7 +517,7 @@ doExecutions model =
 
 
 deathWatchGame : GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-deathWatchGame gameid model =
+deathWatchGame gameid (Model model) =
     let
         doit =
             case model.userFunctions.autoDeleteGame of
@@ -532,31 +531,32 @@ deathWatchGame gameid model =
             model.deathWatchGameids
     in
     if not doit then
-        model
+        Model model
     else
         case Dict.get (maybeLog model.verbose "deathWatch" gameid) gameids of
             Just _ ->
-                model
+                Model model
 
             Nothing ->
-                { model
-                    | deathWatchGameids = Dict.insert gameid True gameids
-                    , deathWatch =
-                        List.append
-                            model.deathWatch
-                            [ ( model.time + model.deathRowDuration, gameid ) ]
-                }
+                Model
+                    { model
+                        | deathWatchGameids = Dict.insert gameid True gameids
+                        , deathWatch =
+                            List.append
+                                model.deathWatch
+                                [ ( model.time + model.deathRowDuration, gameid ) ]
+                    }
 
 
 reprieve : GameId -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-reprieve gameid socket model =
+reprieve gameid socket (Model model) =
     let
         gameids =
             model.deathWatchGameids
     in
     case Dict.get gameid gameids of
         Nothing ->
-            model
+            Model model
 
         Just _ ->
             let
@@ -576,36 +576,38 @@ reprieve gameid socket model =
                         Just gids ->
                             adjoin gameid gids
             in
-            { model
-                | deathWatchGameids =
-                    Dict.remove (maybeLog model.verbose "reprieve" gameid) gameids
-                , deathWatch =
-                    List.filter (\( _, gid ) -> gid /= gameid) model.deathWatch
-                , gameSocketsDict =
-                    Dict.insert gameid sockets model.gameSocketsDict
-                , socketGamesDict =
-                    Dict.insert socket games model.socketGamesDict
-            }
+            Model
+                { model
+                    | deathWatchGameids =
+                        Dict.remove (maybeLog model.verbose "reprieve" gameid) gameids
+                    , deathWatch =
+                        List.filter (\( _, gid ) -> gid /= gameid) model.deathWatch
+                    , gameSocketsDict =
+                        Dict.insert gameid sockets model.gameSocketsDict
+                    , socketGamesDict =
+                        Dict.insert socket games model.socketGamesDict
+                }
 
 
 deathWatchPlayer : ( GameId, PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-deathWatchPlayer ( gameid, playerid ) model =
+deathWatchPlayer ( gameid, playerid ) (Model model) =
     let
         playerids =
             model.deathWatchPlayerids
     in
     case Dict.get (maybeLog model.verbose "deathWatchPlayer" playerid) playerids of
         Just _ ->
-            model
+            Model model
 
         Nothing ->
-            { model
-                | deathWatchPlayerids = Dict.insert playerid True playerids
-                , deathWatchPlayers =
-                    List.append
-                        model.deathWatchPlayers
-                        [ ( model.time + model.deathRowDuration, gameid, playerid ) ]
-            }
+            Model
+                { model
+                    | deathWatchPlayerids = Dict.insert playerid True playerids
+                    , deathWatchPlayers =
+                        List.append
+                            model.deathWatchPlayers
+                            [ ( model.time + model.deathRowDuration, gameid, playerid ) ]
+                }
 
 
 adjoin : a -> List a -> List a
@@ -617,14 +619,14 @@ adjoin a list =
 
 
 reprievePlayer : PlayerId -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-reprievePlayer playerid socket model =
+reprievePlayer playerid socket (Model model) =
     let
         playerids =
             model.deathWatchPlayerids
     in
     case Dict.get playerid playerids of
         Nothing ->
-            model
+            Model model
 
         Just _ ->
             let
@@ -668,20 +670,37 @@ reprievePlayer playerid socket model =
                                     Dict.insert socket games model.socketGamesDict
                             }
             in
-            { mod
-                | deathWatchPlayerids =
-                    Dict.remove (maybeLog model.verbose "reprievePlayer" playerid) playerids
-                , deathWatchPlayers =
-                    List.filter (\( _, _, pid ) -> pid /= playerid)
-                        mod.deathWatchPlayers
-                , playerSocketDict =
-                    Dict.insert playerid socket mod.playerSocketDict
-            }
+            Model
+                { mod
+                    | deathWatchPlayerids =
+                        Dict.remove (maybeLog model.verbose "reprievePlayer" playerid) playerids
+                    , deathWatchPlayers =
+                        List.filter (\( _, _, pid ) -> pid /= playerid)
+                            mod.deathWatchPlayers
+                    , playerSocketDict =
+                        Dict.insert playerid socket mod.playerSocketDict
+                }
 
 
 disconnection : Model servermodel message gamestate player -> Socket -> ( Model servermodel message gamestate player, Cmd Msg )
-disconnection model socket =
+disconnection (Model model) socket =
     let
+        folder =
+            \pair model ->
+                let
+                    (Model m) =
+                        deathWatchPlayer
+                            pair
+                        <|
+                            Model
+                                { model
+                                    | playerSocketDict =
+                                        Dict.remove (Tuple.second pair)
+                                            model.playerSocketDict
+                                }
+                in
+                m
+
         doPlayer =
             \model ->
                 case Dict.get socket model.socketPlayersDict of
@@ -689,22 +708,13 @@ disconnection model socket =
                         model
 
                     Just playerPairs ->
-                        List.foldl
-                            (\pair model ->
-                                deathWatchPlayer
-                                    pair
-                                    { model
-                                        | playerSocketDict =
-                                            Dict.remove (Tuple.second pair)
-                                                model.playerSocketDict
-                                    }
-                            )
+                        List.foldl folder
                             model
                             playerPairs
     in
     case Dict.get socket model.socketGamesDict of
         Nothing ->
-            doPlayer model ! []
+            (Model <| doPlayer model) ! []
 
         Just gameids ->
             let
@@ -729,7 +739,11 @@ disconnection model socket =
                                         }
                                 in
                                 if socks == [] then
-                                    deathWatchGame gameid model2
+                                    let
+                                        (Model m) =
+                                            deathWatchGame gameid (Model model2)
+                                    in
+                                    m
                                 else
                                     model2
 
@@ -739,12 +753,13 @@ disconnection model socket =
                 mdl2 =
                     doPlayer mdl
             in
-            { mdl2
-                | socketGamesDict =
-                    Dict.remove socket model.socketGamesDict
-                , socketPlayersDict =
-                    Dict.remove socket model.socketPlayersDict
-            }
+            Model
+                { mdl2
+                    | socketGamesDict =
+                        Dict.remove socket model.socketGamesDict
+                    , socketPlayersDict =
+                        Dict.remove socket model.socketPlayersDict
+                }
                 ! []
 
 
@@ -778,10 +793,10 @@ sendToMany verbose encoder message outputPort sockets =
 If `(verbose model)` is true, log the operation on the console.
 
 -}
-sendToOthers : GameId -> Socket -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
+sendToOthers : GameId -> Socket -> Model servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
 sendToOthers gameid socket model encoder message =
     let
-        (WrappedModel mdl) =
+        (Model mdl) =
             model
 
         outputPort =
@@ -796,10 +811,10 @@ sendToOthers gameid socket model encoder message =
 If `(verbose model)` is true, log the operation on the console.
 
 -}
-sendToAll : GameId -> WrappedModel servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
+sendToAll : GameId -> Model servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
 sendToAll gameid model encoder message =
     let
-        (WrappedModel mdl) =
+        (Model mdl) =
             model
 
         outputPort =
@@ -814,7 +829,7 @@ sendToAll gameid model encoder message =
 
 
 socketMessage : Model servermodel message gamestate player -> Socket -> String -> ( Model servermodel message gamestate player, Cmd Msg )
-socketMessage model socket request =
+socketMessage (Model model) socket request =
     let
         userFunctions =
             model.userFunctions
@@ -823,7 +838,7 @@ socketMessage model socket request =
         (Err msg) as result ->
             case userFunctions.encodeDecode.errorWrapper of
                 Nothing ->
-                    ( model, Cmd.none )
+                    ( Model model, Cmd.none )
 
                 Just wrapper ->
                     let
@@ -834,14 +849,14 @@ socketMessage model socket request =
                                 , message = result
                                 }
                     in
-                    ( model
-                    , sendToOne
-                        model.verbose
-                        userFunctions.encodeDecode.encoder
-                        response
-                        userFunctions.outputPort
-                        socket
-                    )
+                    Model model
+                        ! [ sendToOne
+                                model.verbose
+                                userFunctions.encodeDecode.encoder
+                                response
+                                userFunctions.outputPort
+                                socket
+                          ]
 
         Ok message ->
             let
@@ -849,7 +864,7 @@ socketMessage model socket request =
                     userFunctions.messageProcessor model.state message
 
                 mdl =
-                    processAddsAndRemoves socket model state
+                    processAddsAndRemoves socket (Model model) state
 
                 mod =
                     maybeReprieve message socket mdl
@@ -863,9 +878,9 @@ socketMessage model socket request =
                         mod2 =
                             maybeReprieve response socket mod
 
-                        ( WrappedModel mod3, cmd ) =
+                        ( mod3, cmd ) =
                             userFunctions.messageSender
-                                (WrappedModel mod2)
+                                mod2
                                 socket
                                 state
                                 message
@@ -875,7 +890,7 @@ socketMessage model socket request =
 
 
 maybeReprieve : message -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-maybeReprieve message socket model =
+maybeReprieve message socket (Model model) =
     let
         mod =
             case model.userFunctions.messageToGameid of
@@ -888,19 +903,23 @@ maybeReprieve message socket model =
                             model
 
                         Just gameid ->
-                            reprieve gameid socket model
+                            let
+                                (Model m) =
+                                    reprieve gameid socket (Model model)
+                            in
+                            m
     in
     case model.userFunctions.messageToPlayerid of
         Nothing ->
-            mod
+            Model mod
 
         Just messageToPlayerid ->
             case messageToPlayerid message of
                 Nothing ->
-                    mod
+                    Model mod
 
                 Just playerid ->
-                    reprievePlayer playerid socket mod
+                    reprievePlayer playerid socket (Model mod)
 
 
 {-| Return sockets associated with a game.
@@ -910,8 +929,8 @@ Removes the passed socket from the list.
 Often useful in `ServerMessageSender` functions to send responses to all players.
 
 -}
-otherSockets : GameId -> Socket -> WrappedModel servermodel message gamestate player -> List Socket
-otherSockets gameid socket (WrappedModel model) =
+otherSockets : GameId -> Socket -> Model servermodel message gamestate player -> List Socket
+otherSockets gameid socket (Model model) =
     case Dict.get gameid model.gameSocketsDict of
         Nothing ->
             []
@@ -943,29 +962,31 @@ processAddsAndRemoves socket model state =
                         mdl2
                         changes.removedGames
 
-                mdl4 =
+                (Model mdl4) =
                     List.foldl removePlayer
                         mdl3
                         changes.removedPlayers
             in
-            { mdl4
-                | state =
-                    { state | changes = Nothing }
-            }
+            Model
+                { mdl4
+                    | state =
+                        { state | changes = Nothing }
+                }
 
 
 recordGameid : Socket -> GameId -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-recordGameid socket gameid model =
-    { model
-        | socketGamesDict =
-            adjoinToSocketGamesDict gameid socket model.socketGamesDict
-        , gameSocketsDict =
-            Dict.insert gameid [ socket ] model.gameSocketsDict
-    }
+recordGameid socket gameid (Model model) =
+    Model
+        { model
+            | socketGamesDict =
+                adjoinToSocketGamesDict gameid socket model.socketGamesDict
+            , gameSocketsDict =
+                Dict.insert gameid [ socket ] model.gameSocketsDict
+        }
 
 
 recordPlayerid : Socket -> ( GameId, PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-recordPlayerid socket ( gameid, playerid ) model =
+recordPlayerid socket ( gameid, playerid ) (Model model) =
     let
         sockets =
             case Dict.get gameid model.gameSocketsDict of
@@ -978,19 +999,20 @@ recordPlayerid socket ( gameid, playerid ) model =
                     else
                         socket :: socks
     in
-    { model
-        | socketGamesDict =
-            adjoinToSocketGamesDict gameid socket model.socketGamesDict
-        , gameSocketsDict =
-            Dict.insert gameid sockets model.gameSocketsDict
-        , socketPlayersDict =
-            adjoinToSocketPlayersDict gameid
-                playerid
-                socket
-                model.socketPlayersDict
-        , playerSocketDict =
-            Dict.insert playerid socket model.playerSocketDict
-    }
+    Model
+        { model
+            | socketGamesDict =
+                adjoinToSocketGamesDict gameid socket model.socketGamesDict
+            , gameSocketsDict =
+                Dict.insert gameid sockets model.gameSocketsDict
+            , socketPlayersDict =
+                adjoinToSocketPlayersDict gameid
+                    playerid
+                    socket
+                    model.socketPlayersDict
+            , playerSocketDict =
+                Dict.insert playerid socket model.playerSocketDict
+        }
 
 
 adjoinToSocketGamesDict : GameId -> Socket -> Dict Socket (List GameId) -> Dict Socket (List GameId)
@@ -1025,7 +1047,7 @@ adjoinToSocketPlayersDict gameid playerid socket dict =
 
 
 removeGame : ( GameId, List PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-removeGame ( gameid, pids ) model =
+removeGame ( gameid, pids ) (Model model) =
     let
         mdl2 =
             let
@@ -1050,10 +1072,11 @@ removeGame ( gameid, pids ) model =
                         sockets
             }
     in
-    { mdl2
-        | playerSocketDict =
-            List.foldl Dict.remove model.playerSocketDict pids
-    }
+    Model
+        { mdl2
+            | playerSocketDict =
+                List.foldl Dict.remove model.playerSocketDict pids
+        }
 
 
 removeFromSocketGamesDict : GameId -> Socket -> Dict Socket (List GameId) -> Dict Socket (List GameId)
@@ -1072,7 +1095,7 @@ removeFromSocketGamesDict gameid socket dict =
 
 
 removePlayer : ( GameId, PlayerId ) -> Model servermodel message gamestate player -> Model servermodel message gamestate player
-removePlayer ( gameid, playerid ) model =
+removePlayer ( gameid, playerid ) (Model model) =
     let
         mdl =
             case Dict.get playerid model.playerSocketDict of
@@ -1086,10 +1109,11 @@ removePlayer ( gameid, playerid ) model =
                                 model.socketPlayersDict
                     }
     in
-    { mdl
-        | playerSocketDict =
-            Dict.remove playerid model.playerSocketDict
-    }
+    Model
+        { mdl
+            | playerSocketDict =
+                Dict.remove playerid model.playerSocketDict
+        }
 
 
 
