@@ -5,12 +5,13 @@ var port = (process.env.PORT || 8081),
     server = http.createServer(
       ecstatic({ root: __dirname })
     ),
-    WebSocketServer = require('../index.js'),
+    WebSocketServer = require('./WebSocketServer.js'),
     app = require('./server.js').Elm.Server.init({ flags: verbose }),
     wss = new WebSocketServer(
       server,
       app.ports.inputPort,
-      app.ports.outputPort
+      app.ports.outputPort,
+      verbose
     );
 
 server.listen(port);

@@ -77,7 +77,7 @@ encodeDecode =
 
 messageSender : ServerMessageSender ServerModel Message GameState Player
 messageSender model socket state request response =
-    ( model, sendToOne (verbose model) messageEncoder response outputPort socket )
+    ( model, sendToOne messageEncoder response outputPort socket )
 
 
 userFunctions : UserFunctions ServerModel Message GameState Player

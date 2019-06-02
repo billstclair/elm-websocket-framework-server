@@ -50,7 +50,6 @@ module WebSocketFramework.Server exposing
 -}
 
 import Char
-import Debug exposing (log)
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE
@@ -309,32 +308,13 @@ type Msg
     | Noop
 
 
-maybeLog : Bool -> String -> x -> x
-maybeLog isVerbose label x =
-    if isVerbose then
-        log label x
-
-    else
-        x
-
-
-maybeLogMsg : Bool -> Msg -> Msg
-maybeLogMsg isVerbose msg =
-    case msg of
-        Tick _ ->
-            msg
-
-        x ->
-            maybeLog isVerbose "Msg" x
-
-
 update : Msg -> Model servermodel message gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
 update message model =
     let
         (Model mod) =
             model
     in
-    case maybeLogMsg mod.verbose message of
+    case message of
         Connection socket ->
             ( model, Cmd.none )
 
@@ -535,7 +515,7 @@ deathWatchGame gameid (Model model) =
         Model model
 
     else
-        case Dict.get (maybeLog model.verbose "deathWatch" gameid) gameids of
+        case Dict.get gameid gameids of
             Just _ ->
                 Model model
 
@@ -581,7 +561,7 @@ reprieve gameid socket (Model model) =
             Model
                 { model
                     | deathWatchGameids =
-                        Dict.remove (maybeLog model.verbose "reprieve" gameid) gameids
+                        Dict.remove gameid gameids
                     , deathWatch =
                         List.filter (\( _, gid ) -> gid /= gameid) model.deathWatch
                     , gameSocketsDict =
@@ -597,7 +577,7 @@ deathWatchPlayer ( gameid, playerid ) (Model model) =
         playerids =
             model.deathWatchPlayerids
     in
-    case Dict.get (maybeLog model.verbose "deathWatchPlayer" playerid) playerids of
+    case Dict.get playerid playerids of
         Just _ ->
             Model model
 
@@ -676,7 +656,7 @@ reprievePlayer playerid socket (Model model) =
             Model
                 { mod
                     | deathWatchPlayerids =
-                        Dict.remove (maybeLog model.verbose "reprievePlayer" playerid) playerids
+                        Dict.remove playerid playerids
                     , deathWatchPlayers =
                         List.filter (\( _, _, pid ) -> pid /= playerid)
                             mod.deathWatchPlayers
@@ -772,30 +752,24 @@ disconnection (Model model) socket =
 If the first arg is True, log the operation on the console.
 
 -}
-sendToOne : Bool -> MessageEncoder message -> message -> OutputPort Msg -> Socket -> Cmd Msg
-sendToOne isVerbose encoder message outputPort socket =
+sendToOne : MessageEncoder message -> message -> OutputPort Msg -> Socket -> Cmd Msg
+sendToOne encoder message outputPort socket =
     WSS.sendToOne outputPort
-        (maybeLog isVerbose "sendToOne" <| encodeMessage encoder message)
-        (maybeLog isVerbose "  " socket)
+        (encodeMessage encoder message)
+        socket
 
 
 {-| Encode a message to multiple sockets via an output port.
-
-If the first arg is True, log the operation on the console.
-
 -}
-sendToMany : Bool -> MessageEncoder message -> message -> OutputPort Msg -> List Socket -> Cmd Msg
-sendToMany isVerbose encoder message outputPort sockets =
+sendToMany : MessageEncoder message -> message -> OutputPort Msg -> List Socket -> Cmd Msg
+sendToMany encoder message outputPort sockets =
     WSS.sendToMany outputPort
-        (maybeLog isVerbose "sendToMany" <| encodeMessage encoder message)
-        (maybeLog isVerbose "  " sockets)
+        (encodeMessage encoder message)
+        sockets
         |> Cmd.batch
 
 
 {-| Encode a message to all the sockets for a GameId except the passed one.
-
-If `(verbose model)` is true, log the operation on the console.
-
 -}
 sendToOthers : GameId -> Socket -> Model servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
 sendToOthers gameid socket model encoder message =
@@ -806,14 +780,11 @@ sendToOthers gameid socket model encoder message =
         outputPort =
             mdl.userFunctions.outputPort
     in
-    sendToMany mdl.verbose encoder message outputPort <|
+    sendToMany encoder message outputPort <|
         otherSockets gameid socket model
 
 
 {-| Encode a message to all the sockets for a GameId.
-
-If `(verbose model)` is true, log the operation on the console.
-
 -}
 sendToAll : GameId -> Model servermodel message gamestate player -> MessageEncoder message -> message -> Cmd Msg
 sendToAll gameid model encoder message =
@@ -829,7 +800,7 @@ sendToAll gameid model encoder message =
             Cmd.none
 
         Just sockets ->
-            sendToMany mdl.verbose encoder message outputPort sockets
+            sendToMany encoder message outputPort sockets
 
 
 socketMessage : Model servermodel message gamestate player -> Socket -> String -> ( Model servermodel message gamestate player, Cmd Msg )
@@ -855,7 +826,6 @@ socketMessage (Model model) socket request =
                     in
                     ( Model model
                     , sendToOne
-                        model.verbose
                         userFunctions.encodeDecode.encoder
                         response
                         userFunctions.outputPort
