@@ -1,4 +1,4 @@
-port module Server exposing (..)
+port module Server exposing (ServerModel, encodeDecode, errorWrapper, inputPort, main, messageSender, outputPort, serverModel, userFunctions)
 
 import ExampleInterface
     exposing
@@ -37,6 +37,11 @@ serverModel =
     ()
 
 
+tos : Int -> String
+tos x =
+    String.fromInt x
+
+
 errorWrapper : Error Message -> Message
 errorWrapper { kind, description, message } =
     case kind of
@@ -48,8 +53,7 @@ errorWrapper { kind, description, message } =
                             msg
 
                         Ok msg ->
-                            -- Can't happen
-                            toString msg
+                            Debug.toString msg
             in
             ErrorMessage
                 { request = description
@@ -59,7 +63,7 @@ errorWrapper { kind, description, message } =
         _ ->
             ErrorMessage
                 { request = ""
-                , error = toString message
+                , error = Debug.toString message
                 }
 
 

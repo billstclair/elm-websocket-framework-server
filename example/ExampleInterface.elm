@@ -10,15 +10,14 @@
 ----------------------------------------------------------------------
 
 
-module ExampleInterface
-    exposing
-        ( GameState
-        , Message(..)
-        , Player
-        , messageDecoder
-        , messageEncoder
-        , messageProcessor
-        )
+module ExampleInterface exposing
+    ( GameState
+    , Message(..)
+    , Player
+    , messageDecoder
+    , messageEncoder
+    , messageProcessor
+    )
 
 import Debug exposing (log)
 import Json.Decode as JD exposing (Decoder)
@@ -42,6 +41,11 @@ type Message
     | ErrorMessage { request : String, error : String }
 
 
+tos : Int -> String
+tos x =
+    String.fromInt x
+
+
 messageProcessor : ServerState GameState Player -> Message -> ( ServerState GameState Player, Maybe Message )
 messageProcessor state message =
     case message of
@@ -49,11 +53,11 @@ messageProcessor state message =
             ( state
             , Just
                 (ResultMessage <|
-                    toString x
+                    tos x
                         ++ " + "
-                        ++ toString y
+                        ++ tos y
                         ++ " = "
-                        ++ toString (x + y)
+                        ++ tos (x + y)
                 )
             )
 
@@ -61,11 +65,11 @@ messageProcessor state message =
             ( state
             , Just
                 (ResultMessage <|
-                    toString x
+                    tos x
                         ++ " * "
-                        ++ toString y
+                        ++ tos y
                         ++ " = "
-                        ++ toString (x * y)
+                        ++ tos (x * y)
                 )
             )
 

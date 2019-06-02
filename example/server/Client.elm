@@ -10,19 +10,22 @@
 ----------------------------------------------------------------------
 
 
-module Client exposing (..)
+module Client exposing (Model, Msg(..), br, init, is13, main, messageView, onEnter, subscriptions, update, view)
 
+import Browser
 import Html as H exposing (Html)
 import Html.Attributes as A
 import Html.Events as E
 import Json.Decode as Decode exposing (Decoder)
-import Json.Encode as Encode
-import WebSocket
+import Json.Encode as Encode exposing (Value)
+import PortFunnel.WebSocket as WebSocket exposing (Response(..))
+import PortFunnels exposing (FunnelDict, Handler(..), State)
+import Task
 
 
 main : Program String Model Msg
 main =
-    H.programWithFlags
+    Browser.element
         { init = init
         , view = view
         , update = update
@@ -38,17 +41,27 @@ type alias Model =
     { messages : List String
     , input : String
     , server : String
+    , error : Maybe String
+    , state : State
     }
 
 
-init : String -> ( Model, Cmd msg )
+init : String -> ( Model, Cmd Msg )
 init server =
     ( { messages = []
       , input = ""
       , server = server
+      , error = Nothing
+      , state = PortFunnels.initialState
       }
-    , Cmd.none
+    , openSocket server
     )
+
+
+openSocket : String -> Cmd Msg
+openSocket server =
+    WebSocket.makeOpen (Debug.log "openSocket" server)
+        |> WebSocket.send cmdPort
 
 
 
@@ -59,19 +72,24 @@ type Msg
     = InputMessage String
     | SubmitMessage
     | ServerMessage String
+    | Process Value
 
 
-update : Msg -> Model -> ( Model, Cmd msg )
-update message model =
-    case message of
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
         InputMessage value ->
             ( { model | input = value }
             , Cmd.none
             )
 
         SubmitMessage ->
-            ( { model | input = "" }
-            , WebSocket.send model.server model.input
+            ( { model
+                | input = ""
+                , error = Nothing
+              }
+            , WebSocket.makeSend model.server model.input
+                |> WebSocket.send cmdPort
             )
 
         ServerMessage message ->
@@ -81,14 +99,79 @@ update message model =
             , Cmd.none
             )
 
+        Process value ->
+            case
+                PortFunnels.processValue funnelDict value model.state model
+            of
+                Err error ->
+                    ( { model | error = Just error }
+                    , Cmd.none
+                    )
+
+                Ok res ->
+                    res
+
+
+
+-- WebSocket interface
+
+
+handlers : List (Handler Model Msg)
+handlers =
+    [ WebSocketHandler socketHandler
+    ]
+
+
+funnelDict : FunnelDict Model Msg
+funnelDict =
+    PortFunnels.makeFunnelDict handlers getCmdPort
+
+
+{-| Get a possibly simulated output port.
+-}
+getCmdPort : String -> Model -> (Value -> Cmd Msg)
+getCmdPort moduleName model =
+    PortFunnels.getCmdPort Process moduleName False
+
+
+{-| The real output port.
+-}
+cmdPort : Value -> Cmd Msg
+cmdPort =
+    PortFunnels.getCmdPort Process "" False
+
+
+socketHandler : Response -> State -> Model -> ( Model, Cmd Msg )
+socketHandler response state mdl =
+    let
+        model =
+            { mdl | state = state }
+    in
+    case response of
+        WebSocket.MessageReceivedResponse { message } ->
+            ( model, Task.perform ServerMessage <| Task.succeed message )
+
+        ErrorResponse error ->
+            ( { model | error = Just <| WebSocket.errorToString error }
+            , case error of
+                WebSocket.SocketNotOpenError _ ->
+                    openSocket model.server
+
+                _ ->
+                    Cmd.none
+            )
+
+        _ ->
+            ( model, Cmd.none )
+
 
 
 -- SUBSCRIPTIONS
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    WebSocket.listen model.server ServerMessage
+subscriptions =
+    PortFunnels.subscriptions Process
 
 
 
@@ -105,6 +188,7 @@ is13 : a -> Int -> Decoder a
 is13 a code =
     if code == 13 then
         Decode.succeed a
+
     else
         Decode.fail "not the right key code"
 
