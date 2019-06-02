@@ -3,9 +3,9 @@
     "name": "billstclair/elm-websocket-framework-server",
     "summary": "This is the server side of billstclair/elm-websocket-framework",
     "license": "MIT",
-    "version": "13.0.0",
+    "version": "14.0.0",
     "exposed-modules": [
-        "WebSocketServer",  
+        "WebSocketServer",
         "WebSocketFramework.Server"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
