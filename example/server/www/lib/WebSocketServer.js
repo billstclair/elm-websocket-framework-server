@@ -57,10 +57,10 @@ function Message (id, location, message) {
 var lastMessage = null;
 var lastId = null;
 
-function handleConnection (input, output, verbose, ws) {
+function handleConnection (input, output, verbose, ws, req) {
 
   const id = uuid();
-  const requestUrl = 'ws://' + ws.upgradeReq.headers.host + ws.upgradeReq.url;
+  const requestUrl = 'ws://' + req.headers.host + req.url;
   const location = Location(requestUrl);
 
   if (verbose) console.log('connected:', id);
