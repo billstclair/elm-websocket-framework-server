@@ -1,5 +1,5 @@
 module WebSocketFramework.Server exposing
-    ( Model, Socket
+    ( Model, Socket, Msg
     , UserFunctions, ServerMessageSender, ServerGamesDeleter, ServerPlayersDeleter
     , program
     , sendToOne, sendToMany, sendToOthers, sendToAll
@@ -14,7 +14,7 @@ module WebSocketFramework.Server exposing
 
 # Types
 
-@docs Model, Socket
+@docs Model, Socket, Msg
 
 
 # Callbacks
@@ -296,7 +296,7 @@ init servermodel userFunctions gamestate maybeVerbose =
 
 {-| The messages processed by our `update` function.
 
-`Connection`, `Disconnection`, and `SocketMessage` from through the `inputPort` from the Node.JS code. `FirstTick` and `Tick` are used to track time. `Noop` does nothing.
+Opaque, because your code doesn't need to know.
 
 -}
 type Msg
@@ -306,6 +306,12 @@ type Msg
     | FirstTick Posix
     | Tick Posix
     | Noop
+
+
+
+-- `Connection`, `Disconnection`, and `SocketMessage` come through the
+-- `inputPort` from the Node.JS code.
+-- `FirstTick` and `Tick` are used to track time. `Noop` does nothing.
 
 
 update : Msg -> Model servermodel message gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
