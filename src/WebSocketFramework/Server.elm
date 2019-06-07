@@ -810,16 +810,17 @@ sendToAll gameid model encoder message =
 
 
 socketMessage : Model servermodel message gamestate player -> Socket -> String -> ( Model servermodel message gamestate player, Cmd Msg )
-socketMessage (Model model) socket request =
+socketMessage (Model mdl) socket request =
+    -- The `modeln` are wrapped. The `mdln` are unwrapped.
     let
         userFunctions =
-            model.userFunctions
+            mdl.userFunctions
     in
     case decodeMessage userFunctions.encodeDecode.decoder request of
         (Err msg) as result ->
             case userFunctions.encodeDecode.errorWrapper of
                 Nothing ->
-                    ( Model model, Cmd.none )
+                    ( Model mdl, Cmd.none )
 
                 Just wrapper ->
                     let
@@ -830,7 +831,7 @@ socketMessage (Model model) socket request =
                                 , message = result
                                 }
                     in
-                    ( Model model
+                    ( Model mdl
                     , sendToOne
                         userFunctions.encodeDecode.encoder
                         response
@@ -841,36 +842,42 @@ socketMessage (Model model) socket request =
         Ok message ->
             let
                 ( state, rsp ) =
-                    userFunctions.messageProcessor model.state message
+                    userFunctions.messageProcessor mdl.state message
 
-                mdl =
-                    processAddsAndRemoves socket
-                        (Model { model | state = state })
-                        state
+                (Model mdl2) =
+                    maybeReprieve message
+                        socket
+                        (Model { mdl | state = state })
 
-                mdl2 =
-                    maybeReprieve message socket mdl
+                (Model mdl3) =
+                    processAdds socket (Model mdl2) mdl2.state
+
+                ( Model mdl5, cmd2 ) =
+                    case rsp of
+                        Nothing ->
+                            ( Model mdl3
+                            , Cmd.none
+                            )
+
+                        Just response ->
+                            let
+                                mdl4 =
+                                    maybeReprieve response socket (Model mdl3)
+
+                                ( model4, cmd ) =
+                                    userFunctions.messageSender
+                                        (Model mdl3)
+                                        socket
+                                        mdl2.state
+                                        message
+                                        response
+                            in
+                            ( model4, cmd )
+
+                model6 =
+                    processRemoves socket (Model mdl5) mdl5.state
             in
-            case rsp of
-                Nothing ->
-                    ( mdl2
-                    , Cmd.none
-                    )
-
-                Just response ->
-                    let
-                        mdl3 =
-                            maybeReprieve response socket mdl2
-
-                        ( mdl4, cmd ) =
-                            userFunctions.messageSender
-                                mdl3
-                                socket
-                                state
-                                message
-                                response
-                    in
-                    ( mdl4, cmd )
+            ( model6, cmd2 )
 
 
 maybeReprieve : message -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
@@ -923,38 +930,81 @@ otherSockets gameid socket (Model model) =
             LE.remove socket sockets
 
 
-processAddsAndRemoves : Socket -> Model servermodel message gamestate player -> ServerState gamestate player -> Model servermodel message gamestate player
-processAddsAndRemoves socket model state =
+processAdds : Socket -> Model servermodel message gamestate player -> ServerState gamestate player -> Model servermodel message gamestate player
+processAdds socket model state =
     case state.changes of
         Nothing ->
             model
 
         Just changes ->
             let
-                mdl =
+                model2 =
                     List.foldl (recordGameid socket)
                         model
                         changes.addedGames
 
-                mdl2 =
+                (Model mdl3) =
                     List.foldl (recordPlayerid socket)
-                        mdl
+                        model2
                         changes.addedPlayers
+            in
+            Model
+                { mdl3
+                    | state =
+                        { state
+                            | changes =
+                                if
+                                    (changes.removedGames == [])
+                                        && (changes.removedPlayers == [])
+                                then
+                                    Nothing
 
-                mdl3 =
+                                else
+                                    Just
+                                        { changes
+                                            | addedGames = []
+                                            , addedPlayers = []
+                                        }
+                        }
+                }
+
+
+processRemoves : Socket -> Model servermodel message gamestate player -> ServerState gamestate player -> Model servermodel message gamestate player
+processRemoves socket model state =
+    case state.changes of
+        Nothing ->
+            model
+
+        Just changes ->
+            let
+                model2 =
                     List.foldl removeGame
-                        mdl2
+                        model
                         changes.removedGames
 
-                (Model mdl4) =
+                (Model mdl3) =
                     List.foldl removePlayer
-                        mdl3
+                        model2
                         changes.removedPlayers
             in
             Model
-                { mdl4
+                { mdl3
                     | state =
-                        { state | changes = Nothing }
+                        { state
+                            | changes =
+                                if
+                                    (changes.addedGames == [])
+                                        && (changes.addedPlayers == [])
+                                then
+                                    Nothing
+
+                                else
+                                    Just
+                                        { changes
+                                            | removedGames = []
+                                            , removedPlayers = []
+                                        }
+                        }
                 }
 
 
