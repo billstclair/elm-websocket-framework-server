@@ -844,31 +844,33 @@ socketMessage (Model model) socket request =
                     userFunctions.messageProcessor model.state message
 
                 mdl =
-                    processAddsAndRemoves socket (Model model) state
+                    processAddsAndRemoves socket
+                        (Model { model | state = state })
+                        state
 
-                mod =
+                mdl2 =
                     maybeReprieve message socket mdl
             in
             case rsp of
                 Nothing ->
-                    ( mod
+                    ( mdl2
                     , Cmd.none
                     )
 
                 Just response ->
                     let
-                        mod2 =
-                            maybeReprieve response socket mod
+                        mdl3 =
+                            maybeReprieve response socket mdl2
 
-                        ( mod3, cmd ) =
+                        ( mdl4, cmd ) =
                             userFunctions.messageSender
-                                mod2
+                                mdl3
                                 socket
                                 state
                                 message
                                 response
                     in
-                    ( mod3, cmd )
+                    ( mdl4, cmd )
 
 
 maybeReprieve : message -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
