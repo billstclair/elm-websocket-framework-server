@@ -1015,7 +1015,19 @@ recordGameid socket gameid (Model model) =
             | socketGamesDict =
                 adjoinToSocketGamesDict gameid socket model.socketGamesDict
             , gameSocketsDict =
-                Dict.insert gameid [ socket ] model.gameSocketsDict
+                let
+                    gameSocketsDict =
+                        model.gameSocketsDict
+
+                    sockets =
+                        case Dict.get gameid gameSocketsDict of
+                            Nothing ->
+                                [ socket ]
+
+                            Just socks ->
+                                adjoin socket socks
+                in
+                Dict.insert gameid sockets gameSocketsDict
         }
 
 
