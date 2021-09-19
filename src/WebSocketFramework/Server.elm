@@ -810,17 +810,17 @@ sendToAll gameid model encoder message =
 
 
 socketMessage : Model servermodel message gamestate player -> Socket -> String -> ( Model servermodel message gamestate player, Cmd Msg )
-socketMessage (Model mdl) socket request =
+socketMessage (Model model) socket request =
     -- The `modeln` are wrapped. The `mdln` are unwrapped.
     let
         userFunctions =
-            mdl.userFunctions
+            model.userFunctions
     in
     case decodeMessage userFunctions.encodeDecode.decoder request of
         (Err msg) as result ->
             case userFunctions.encodeDecode.errorWrapper of
                 Nothing ->
-                    ( Model mdl, Cmd.none )
+                    ( Model model, Cmd.none )
 
                 Just wrapper ->
                     let
@@ -831,7 +831,7 @@ socketMessage (Model mdl) socket request =
                                 , message = result
                                 }
                     in
-                    ( Model mdl
+                    ( Model model
                     , sendToOne
                         userFunctions.encodeDecode.encoder
                         response
@@ -842,42 +842,39 @@ socketMessage (Model mdl) socket request =
         Ok message ->
             let
                 ( state, rsp ) =
-                    userFunctions.messageProcessor mdl.state message
+                    userFunctions.messageProcessor model.state message
 
-                (Model mdl2) =
+                (Model mdl) =
                     maybeReprieve message
                         socket
-                        (Model { mdl | state = state })
+                        (Model { model | state = state })
 
-                (Model mdl3) =
-                    processAdds socket (Model mdl2) mdl2.state
+                (Model mdl2) =
+                    processAdds socket (Model mdl) mdl.state
 
-                ( Model mdl5, cmd2 ) =
+                ( Model mdl3, cmd3 ) =
                     case rsp of
                         Nothing ->
-                            ( Model mdl3
+                            ( Model mdl2
                             , Cmd.none
                             )
 
                         Just response ->
                             let
-                                mdl4 =
-                                    maybeReprieve response socket (Model mdl3)
-
-                                ( model4, cmd ) =
-                                    userFunctions.messageSender
-                                        (Model mdl3)
-                                        socket
-                                        mdl2.state
-                                        message
-                                        response
+                                (Model mdl4) =
+                                    maybeReprieve response socket (Model mdl2)
                             in
-                            ( model4, cmd )
+                            userFunctions.messageSender
+                                (Model mdl4)
+                                socket
+                                mdl4.state
+                                message
+                                response
 
-                model6 =
-                    processRemoves socket (Model mdl5) mdl5.state
+                mdl5 =
+                    processRemoves socket (Model mdl3) mdl3.state
             in
-            ( model6, cmd2 )
+            ( mdl5, cmd3 )
 
 
 maybeReprieve : message -> Socket -> Model servermodel message gamestate player -> Model servermodel message gamestate player
