@@ -430,10 +430,19 @@ deathRowDuration =
 
 
 doExecutions : Model servermodel message gamestate player -> ( Model servermodel message gamestate player, Cmd Msg )
-doExecutions (Model model) =
+doExecutions (Model mdl) =
     let
         time =
-            model.time
+            mdl.time
+
+        state =
+            mdl.state
+
+        model =
+            { mdl
+                | state =
+                    { state | time = Time.millisToPosix time }
+            }
 
         gameLoop ( mod, cmd ) watches =
             case watches of
